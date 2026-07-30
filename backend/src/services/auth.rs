@@ -187,8 +187,9 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
     let wallet = Wallet {
         id: Uuid::new_v4(),
         user_id,
-        balance_kobo: 0,
-        ledger_balance_kobo: 0,
+        available_kobo: 0,
+        ledger_kobo: 0,
+        version: 0,
     };
 
     // bcrypt cost 12 — OWASP minimum recommendation

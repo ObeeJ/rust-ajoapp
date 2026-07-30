@@ -6,35 +6,32 @@ use uuid::Uuid;
 
 #[derive(Clone, Default)]
 pub struct Store {
-    pub users:             Arc<Mutex<HashMap<Uuid, User>>>,
-    pub pins:              Arc<Mutex<HashMap<Uuid, String>>>,
-    pub wallets:           Arc<Mutex<HashMap<Uuid, Wallet>>>,
-    pub wallet_locks:      Arc<dashmap::DashMap<Uuid, Arc<Mutex<()>>>>,
-    pub transactions:      Arc<Mutex<Vec<Transaction>>>,
+    pub users:              Arc<Mutex<HashMap<Uuid, User>>>,
+    pub pins:               Arc<Mutex<HashMap<Uuid, String>>>,
+    pub wallets:            Arc<Mutex<HashMap<Uuid, Wallet>>>,
+    pub wallet_locks:       Arc<dashmap::DashMap<Uuid, Arc<Mutex<()>>>>,
 
-    // Ajo — O(1) keyed lookups
-    pub ajo_groups:        Arc<Mutex<HashMap<Uuid, AjoGroup>>>,
-    /// (group_id, user_id) → AjoMember
-    pub ajo_members:       Arc<Mutex<HashMap<(Uuid, Uuid), AjoMember>>>,
-    /// (group_id, user_id, cycle) — contribution dedup
-    pub ajo_contributions: Arc<Mutex<HashSet<(Uuid, Uuid, u32)>>>,
+    /// Append-only double-entry ledger
+    pub ledger:             Arc<Mutex<Vec<LedgerEntry>>>,
+    /// Public-facing transaction summaries (derived from ledger pairs)
+    pub transactions:       Arc<Mutex<Vec<Transaction>>>,
 
-    // Bills — O(1) keyed lookups
-    pub bills:             Arc<Mutex<HashMap<Uuid, Bill>>>,
-    /// (bill_id, user_id) → BillParticipant
-    pub bill_participants: Arc<Mutex<HashMap<(Uuid, Uuid), BillParticipant>>>,
-    /// bill_id → Vec<user_id> (ordered participant list)
+    /// Outbox — persisted atomically, delivered by background worker
+    pub outbox:             Arc<Mutex<Vec<OutboxEvent>>>,
+
+    pub ajo_groups:         Arc<Mutex<HashMap<Uuid, AjoGroup>>>,
+    pub ajo_members:        Arc<Mutex<HashMap<(Uuid, Uuid), AjoMember>>>,
+    pub ajo_contributions:  Arc<Mutex<HashSet<(Uuid, Uuid, u32)>>>,
+
+    pub bills:              Arc<Mutex<HashMap<Uuid, Bill>>>,
+    pub bill_participants:  Arc<Mutex<HashMap<(Uuid, Uuid), BillParticipant>>>,
     pub bill_participant_index: Arc<Mutex<HashMap<Uuid, Vec<Uuid>>>>,
 
-    pub phone_index:       Arc<Mutex<HashMap<String, Uuid>>>,
-    pub refresh_tokens:    Arc<Mutex<HashMap<String, RefreshEntry>>>,
-    pub login_attempts:    Arc<Mutex<HashMap<String, LoginAttempts>>>,
-
-    /// JTI deny-list for invalidated access tokens
-    pub denied_jtis:       Arc<Mutex<HashSet<String>>>,
-
-    /// Idempotency keys: key → cached response body
-    pub idempotency_cache: Arc<Mutex<HashMap<String, IdempotencyEntry>>>,
+    pub phone_index:        Arc<Mutex<HashMap<String, Uuid>>>,
+    pub refresh_tokens:     Arc<Mutex<HashMap<String, RefreshEntry>>>,
+    pub login_attempts:     Arc<Mutex<HashMap<String, LoginAttempts>>>,
+    pub denied_jtis:        Arc<Mutex<HashSet<String>>>,
+    pub idempotency_cache:  Arc<Mutex<HashMap<String, IdempotencyEntry>>>,
 }
 
 pub struct RefreshEntry {

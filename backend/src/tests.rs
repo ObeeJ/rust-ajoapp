@@ -86,7 +86,7 @@ fn credit_then_debit_updates_balance() {
     wallet::credit_wallet(&store, uid, 500_00, "ref1", "top-up");
     wallet::debit_wallet(&store, uid, 200_00, "ref2", "spend").unwrap();
     let w = wallet::get_wallet(&store, uid).unwrap();
-    assert_eq!(w.balance_kobo, 300_00);
+    assert_eq!(w.available_kobo, 300_00);
 }
 
 // ── Ajo ───────────────────────────────────────────────────────────────────────
@@ -178,7 +178,7 @@ fn bill_creator_must_pay_own_share() {
     // Creator pays
     bills::pay_bill_share(&store, bill.id, creator).unwrap();
     let w = wallet::get_wallet(&store, creator).unwrap();
-    assert_eq!(w.balance_kobo, 400_00); // 500 - 100
+    assert_eq!(w.available_kobo, 400_00); // 500 - 100
 }
 
 #[test]
@@ -216,4 +216,86 @@ fn double_pay_rejected() {
     let res = bills::pay_bill_share(&store, bill.id, creator);
     assert!(res.is_err());
     assert!(res.unwrap_err().error.contains("Already paid"));
+}
+
+// ── Ledger Invariant ──────────────────────────────────────────────────────────
+
+#[test]
+fn ledger_invariant_holds_after_credit_and_debit() {
+    let store = test_store();
+    let uid = register_user(&store, "08055500001", "Ledger");
+    wallet::credit_wallet(&store, uid, 1000_00, "ref-c1", "top-up");
+    wallet::credit_wallet(&store, uid, 500_00,  "ref-c2", "top-up");
+    wallet::debit_wallet(&store, uid, 300_00,   "ref-d1", "spend").unwrap();
+
+    let wallet_id = store.wallets.lock().unwrap().get(&uid).unwrap().id;
+    wallet::assert_ledger_invariant(&store, wallet_id).expect("ledger invariant violated");
+}
+
+#[test]
+fn ledger_entries_are_append_only() {
+    let store = test_store();
+    let uid = register_user(&store, "08055500002", "Append");
+    wallet::credit_wallet(&store, uid, 200_00, "r1", "fund");
+    wallet::debit_wallet(&store, uid, 100_00, "r2", "spend").unwrap();
+
+    let ledger = store.ledger.lock().unwrap();
+    // Exactly 2 entries — no updates, no deletes
+    let wallet_id = store.wallets.lock().unwrap().get(&uid).unwrap().id;
+    let entries: Vec<_> = ledger.iter().filter(|e| e.wallet_id == wallet_id).collect();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].kind, shared::EntryKind::Credit);
+    assert_eq!(entries[1].kind, shared::EntryKind::Debit);
+}
+
+#[test]
+fn outbox_events_staged_not_delivered_inline() {
+    let store = test_store();
+    let uid = register_user(&store, "08055500003", "Outbox");
+    wallet::credit_wallet(&store, uid, 500_00, "r1", "fund");
+    wallet::debit_wallet(&store, uid, 200_00, "r2", "spend").unwrap();
+
+    let outbox = store.outbox.lock().unwrap();
+    // Both operations staged outbox events
+    assert!(outbox.len() >= 2);
+    // All must be Pending — none delivered inline
+    assert!(outbox.iter().all(|e| e.status == shared::OutboxStatus::Pending));
+}
+
+// ── Concurrency Stress Test ───────────────────────────────────────────────────
+
+#[test]
+fn concurrent_debits_never_overdraft() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let store = Arc::new(test_store());
+    let uid   = register_user(&store, "08066600001", "Concurrent");
+
+    // Fund with exactly 1000 kobo
+    wallet::credit_wallet(&store, uid, 1000, "fund", "seed");
+
+    // 10 threads each try to debit 200 kobo — only 5 should succeed
+    let handles: Vec<_> = (0..10).map(|i| {
+        let s = store.clone();
+        thread::spawn(move || {
+            wallet::debit_wallet(&s, uid, 200, &format!("debit-{i}"), "concurrent")
+        })
+    }).collect();
+
+    let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+    let successes = results.iter().filter(|r| r.is_ok()).count();
+    let failures  = results.iter().filter(|r| r.is_err()).count();
+
+    // Exactly 5 succeed (5 × 200 = 1000), 5 fail with insufficient balance
+    assert_eq!(successes, 5, "expected exactly 5 successful debits");
+    assert_eq!(failures,  5, "expected exactly 5 insufficient balance errors");
+
+    // Balance must be exactly 0 — no overdraft
+    let w = wallet::get_wallet(&store, uid).unwrap();
+    assert_eq!(w.available_kobo, 0, "balance must be 0 after exact spend");
+
+    // Ledger invariant must still hold
+    let wallet_id = store.wallets.lock().unwrap().get(&uid).unwrap().id;
+    wallet::assert_ledger_invariant(&store, wallet_id).expect("ledger invariant violated after concurrency");
 }

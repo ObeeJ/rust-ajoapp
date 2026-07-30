@@ -59,7 +59,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
                     let data: serde_json::Value = r.json().await.unwrap_or_default();
                     // Tokens are in httpOnly cookies — we only read user/wallet from body
                     let uname   = data["user"]["name"].as_str().unwrap_or("").to_string();
-                    let balance = data["wallet"]["balance_kobo"].as_i64().unwrap_or(0);
+                    let balance = data["wallet"]["available_kobo"].as_i64().unwrap_or(0);
                     on_login(String::new(), uname, balance);
                 }
                 Ok(r) => {

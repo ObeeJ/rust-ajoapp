@@ -21,7 +21,7 @@ fn App() -> impl IntoView {
         {
             if r.ok() {
                 let data: serde_json::Value = r.json().await.unwrap_or_default();
-                set_balance.set(data["balance_kobo"].as_i64().unwrap_or(0));
+                set_balance.set(data["available_kobo"].as_i64().unwrap_or(0));
                 set_logged_in.set(true);
             }
         }
