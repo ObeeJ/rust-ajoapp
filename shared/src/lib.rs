@@ -4,12 +4,17 @@ use uuid::Uuid;
 
 // ── User ──────────────────────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum UserRole { User, Admin }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id:         Uuid,
     pub name:       String,
     pub phone:      String,
     pub email:      Option<String>,
+    pub role:       UserRole,
     pub created_at: DateTime<Utc>,
 }
 

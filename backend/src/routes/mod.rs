@@ -10,6 +10,8 @@ use crate::middleware::extract_user;
 use crate::db;
 use sqlx;
 
+pub mod admin;
+
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize     = 100;
 
@@ -32,6 +34,16 @@ fn ok<T: serde::Serialize>(status: u16, v: T) -> Response {
 
 fn err(status: u16, msg: &str) -> Response {
     ok(status, ApiError { error: msg.into() })
+}
+
+/// Public — used by middleware
+pub fn err_resp(status: u16, msg: &str) -> Response {
+    ok(status, ApiError { error: msg.into() })
+}
+
+/// Public — used by admin routes
+pub fn ok_resp<T: serde::Serialize>(status: u16, v: T) -> Response {
+    ok(status, v)
 }
 
 /// Build a Secure, HttpOnly, SameSite=Strict cookie value

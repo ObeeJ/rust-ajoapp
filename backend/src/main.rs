@@ -78,6 +78,15 @@ async fn main() {
         .route("POST", "/v1/bills/:id/pay",        routes::pay_bill)
         .route("GET",  "/v1/health",               routes::health)
         .route("GET",  "/v1/ledger/check",         routes::ledger_check)
+        // Admin
+        .route("GET",  "/v1/admin/dashboard",      routes::admin::dashboard)
+        .route("GET",  "/v1/admin/users",          routes::admin::list_users)
+        .route("GET",  "/v1/admin/users/:id",      routes::admin::get_user)
+        .route("POST", "/v1/admin/users/:id/role", routes::admin::set_user_role)
+        .route("GET",  "/v1/admin/transactions",   routes::admin::list_transactions)
+        .route("GET",  "/v1/admin/ajo",            routes::admin::list_all_ajo)
+        .route("GET",  "/v1/admin/outbox",         routes::admin::outbox_status)
+        .route("POST", "/v1/admin/bootstrap",      routes::admin::bootstrap_admin)
         .listen("0.0.0.0:3000")
         .await;
 }

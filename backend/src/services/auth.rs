@@ -17,17 +17,19 @@ fn jwt_secret() -> String {
 
 #[derive(Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: String, // user_id
-    pub jti: String, // unique token id
-    pub exp: usize,
+    pub sub:  String,
+    pub jti:  String,
+    pub role: String, // "user" | "admin"
+    pub exp:  usize,
 }
 
-pub fn make_access_token(user_id: Uuid) -> Result<String, ApiError> {
+pub fn make_access_token(user_id: Uuid, role: &str) -> Result<String, ApiError> {
     let secret = jwt_secret();
     let claims = Claims {
-        sub: user_id.to_string(),
-        jti: Uuid::new_v4().to_string(),
-        exp: (Utc::now().timestamp() + ACCESS_TOKEN_SECS) as usize,
+        sub:  user_id.to_string(),
+        jti:  Uuid::new_v4().to_string(),
+        role: role.to_string(),
+        exp:  (Utc::now().timestamp() + ACCESS_TOKEN_SECS) as usize,
     };
     encode(
         &Header::default(),
@@ -47,7 +49,7 @@ pub fn make_refresh_token(store: &Store, user_id: Uuid) -> String {
     token
 }
 
-pub fn verify_token(store: &Store, token: &str) -> Option<Uuid> {
+pub fn verify_token(store: &Store, token: &str) -> Option<(Uuid, String)> {
     let secret = jwt_secret();
     let data = decode::<Claims>(
         token,
@@ -55,15 +57,14 @@ pub fn verify_token(store: &Store, token: &str) -> Option<Uuid> {
         &Validation::default(),
     ).ok()?;
 
-    // Check JTI deny-list (logout invalidation)
     if store.denied_jtis.lock().unwrap().contains(&data.claims.jti) {
         return None;
     }
 
-    Uuid::parse_str(&data.claims.sub).ok()
+    let uid = Uuid::parse_str(&data.claims.sub).ok()?;
+    Some((uid, data.claims.role))
 }
 
-/// Extract JTI from a token without full verification (for logout)
 pub fn extract_jti(token: &str) -> Option<String> {
     let secret = jwt_secret();
     decode::<Claims>(
@@ -91,7 +92,7 @@ pub fn rotate_refresh_token(store: &Store, old_token: &str) -> Result<(String, S
         entry.user_id
     };
 
-    let access  = make_access_token(user_id)?;
+    let access  = make_access_token(user_id, "user")?;
     let refresh = make_refresh_token(store, user_id);
     Ok((access, refresh))
 }
@@ -181,6 +182,7 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
         name: req.name.trim().to_string(),
         phone: phone.clone(),
         email: req.email.filter(|e| !e.is_empty()),
+        role: UserRole::User,
         created_at: now,
     };
 
@@ -203,7 +205,7 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
     store.pins.lock().unwrap().insert(user_id, hashed);
     store.wallets.lock().unwrap().insert(user_id, wallet.clone());
 
-    let access_token  = make_access_token(user_id)?;
+    let access_token  = make_access_token(user_id, "user")?;
     let refresh_token = make_refresh_token(store, user_id);
 
     Ok(AuthTokens { access_token, refresh_token, user, wallet })
@@ -215,12 +217,10 @@ pub fn login(store: &Store, req: LoginRequest) -> Result<AuthTokens, ApiError> {
 
     let phone = req.phone.trim().to_string();
 
-    // Rate limit keyed on phone
     check_rate_limit(store, &phone)?;
 
     let user_id = {
         let phones = store.phone_index.lock().unwrap();
-        // Return same error whether phone or PIN is wrong — no enumeration
         phones.get(&phone).copied()
             .ok_or(ApiError { error: "Invalid phone or PIN".into() })?
     };
@@ -240,7 +240,8 @@ pub fn login(store: &Store, req: LoginRequest) -> Result<AuthTokens, ApiError> {
     let wallet = store.wallets.lock().unwrap().get(&user_id).cloned()
         .ok_or(ApiError { error: "Wallet not found".into() })?;
 
-    let access_token  = make_access_token(user_id)?;
+    let role          = match user.role { UserRole::Admin => "admin", _ => "user" };
+    let access_token  = make_access_token(user_id, role)?;
     let refresh_token = make_refresh_token(store, user_id);
 
     Ok(AuthTokens { access_token, refresh_token, user, wallet })
