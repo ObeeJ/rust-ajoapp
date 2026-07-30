@@ -39,16 +39,16 @@ pub struct Config {
     pub body_limit: u64,
     /// Per-request timeout (default 30 s)
     pub request_timeout: Duration,
-    /// Allowed CORS origins — "*" to allow all
+    /// Allowed CORS origin — must be explicit, never "*" for credentialed requests
     pub cors_origin: Option<String>,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            body_limit: 1024 * 1024,
+            body_limit:      1024 * 1024,
             request_timeout: Duration::from_secs(30),
-            cors_origin: None,
+            cors_origin:     None,
         }
     }
 }
@@ -152,13 +152,34 @@ impl App {
                                 let method = req.method().to_string();
                                 let path   = req.uri().path().to_string();
                                 let req_id = uuid::Uuid::new_v4().to_string();
+                                let origin = req.headers()
+                                    .get("origin")
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("")
+                                    .to_string();
 
                                 // ── Built-in endpoints ───────────────────
                                 if method == "GET" && path == "/_openapi.json" {
-                                    return Ok::<_, hyper::Error>(json_resp(200, openapi.as_ref().clone(), None, vec![]));
+                                    return Ok::<_, hyper::Error>(
+                                        apply_cors(json_resp(200, openapi.as_ref().clone(), None, vec![]), &origin, &cfg)
+                                    );
                                 }
                                 if method == "GET" && path == "/_docs" {
                                     return Ok(html_resp(swagger_ui()));
+                                }
+
+                                // ── CORS preflight ───────────────────────
+                                if method == "OPTIONS" {
+                                    return Ok(apply_cors(
+                                        hyper::Response::builder()
+                                            .status(204)
+                                            .header("access-control-allow-methods", "GET, POST, PUT, DELETE, OPTIONS")
+                                            .header("access-control-allow-headers", "content-type, authorization, x-idempotency-key")
+                                            .header("access-control-max-age", "86400")
+                                            .body(Full::new(Bytes::new()))
+                                            .unwrap(),
+                                        &origin, &cfg,
+                                    ));
                                 }
 
                                 let mut headers = HashMap::new();
@@ -207,7 +228,7 @@ impl App {
                                 };
 
                                 info!(req_id, peer = %peer, "{method} {path} → {}", resp.status);
-                                Ok(json_resp(resp.status, resp.body, Some(&req_id), resp.headers))
+                                Ok(apply_cors(json_resp(resp.status, resp.body, Some(&req_id), resp.headers), &origin, &cfg))
                             }
                         });
                         if let Err(e) = http1::Builder::new().serve_connection(io, svc).await {
@@ -233,7 +254,17 @@ impl Default for App {
 fn json_resp(status: u16, body: String, req_id: Option<&str>, extra_headers: Vec<(String, String)>) -> hyper::Response<Full<Bytes>> {
     let mut b = hyper::Response::builder()
         .status(status)
-        .header("content-type", "application/json");
+        .header("content-type", "application/json")
+        // Security headers on every response
+        .header("x-content-type-options", "nosniff")
+        .header("x-frame-options", "DENY")
+        .header("referrer-policy", "strict-origin-when-cross-origin");
+
+    // No-store on auth-adjacent responses (4xx/2xx from auth paths)
+    if status == 200 || status == 201 || status == 401 || status == 403 {
+        b = b.header("cache-control", "no-store");
+    }
+
     if let Some(id) = req_id {
         b = b.header("x-request-id", id);
     }
@@ -241,6 +272,19 @@ fn json_resp(status: u16, body: String, req_id: Option<&str>, extra_headers: Vec
         b = b.header(k.as_str(), v.as_str());
     }
     b.body(Full::new(Bytes::from(body))).unwrap()
+}
+
+/// Apply CORS headers — only sets Allow-Origin if the request origin matches config
+fn apply_cors(mut resp: hyper::Response<Full<Bytes>>, origin: &str, cfg: &Config) -> hyper::Response<Full<Bytes>> {
+    let allowed = match &cfg.cors_origin {
+        Some(o) if o == origin => origin,
+        _ => return resp,
+    };
+    let headers = resp.headers_mut();
+    headers.insert("access-control-allow-origin",      allowed.parse().unwrap());
+    headers.insert("access-control-allow-credentials", "true".parse().unwrap());
+    headers.insert("vary",                             "Origin".parse().unwrap());
+    resp
 }
 
 fn html_resp(body: &'static str) -> hyper::Response<Full<Bytes>> {

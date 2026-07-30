@@ -16,18 +16,16 @@ pub fn create_bill(store: &Store, creator_id: Uuid, req: CreateBillRequest) -> R
         return Err(ApiError { error: "Maximum 49 additional participants".into() });
     }
 
-    // Resolve participant phones to user IDs (skip unknowns)
     let mut participant_ids: Vec<Uuid> = {
         let phones = store.phone_index.lock().unwrap();
-        req.participant_phones
-            .iter()
+        req.participant_phones.iter()
             .filter_map(|p| phones.get(p.trim()).copied())
-            .filter(|&id| id != creator_id) // deduplicate creator
+            .filter(|&id| id != creator_id)
             .collect()
     };
     participant_ids.dedup();
 
-    let total_participants = participant_ids.len() as i64 + 1; // +1 for creator
+    let total_participants = participant_ids.len() as i64 + 1;
     let share_kobo = req.total_kobo / total_participants;
 
     let bill = Bill {
@@ -42,25 +40,20 @@ pub fn create_bill(store: &Store, creator_id: Uuid, req: CreateBillRequest) -> R
     store.bills.lock().unwrap().insert(bill.id, bill.clone());
 
     let mut participants = store.bill_participants.lock().unwrap();
+    let mut index = store.bill_participant_index.lock().unwrap();
 
-    // Creator's share — NOT auto-paid, they must pay like everyone else
-    participants.push(BillParticipant {
-        id: Uuid::new_v4(),
-        bill_id: bill.id,
-        user_id: creator_id,
-        share_kobo,
-        paid: false,
+    let mut ordered = vec![creator_id];
+    participants.insert((bill.id, creator_id), BillParticipant {
+        id: Uuid::new_v4(), bill_id: bill.id, user_id: creator_id, share_kobo, paid: false,
     });
 
     for user_id in participant_ids {
-        participants.push(BillParticipant {
-            id: Uuid::new_v4(),
-            bill_id: bill.id,
-            user_id,
-            share_kobo,
-            paid: false,
+        participants.insert((bill.id, user_id), BillParticipant {
+            id: Uuid::new_v4(), bill_id: bill.id, user_id, share_kobo, paid: false,
         });
+        ordered.push(user_id);
     }
+    index.insert(bill.id, ordered);
 
     Ok(bill)
 }
@@ -68,53 +61,37 @@ pub fn create_bill(store: &Store, creator_id: Uuid, req: CreateBillRequest) -> R
 pub fn pay_bill_share(store: &Store, bill_id: Uuid, user_id: Uuid) -> Result<(), ApiError> {
     let share_kobo = {
         let mut participants = store.bill_participants.lock().unwrap();
-        let p = participants
-            .iter_mut()
-            .find(|p| p.bill_id == bill_id && p.user_id == user_id)
+        let p = participants.get_mut(&(bill_id, user_id))
             .ok_or(ApiError { error: "Not a participant".into() })?;
-
-        if p.paid {
-            return Err(ApiError { error: "Already paid".into() });
-        }
-        let share = p.share_kobo;
+        if p.paid { return Err(ApiError { error: "Already paid".into() }); }
         p.paid = true;
-        share
+        p.share_kobo
     };
 
     let reference = format!("bill-{}-{}", bill_id, user_id);
-
-    // Debit payer
     debit_wallet(store, user_id, share_kobo, &reference, "Bill split payment")?;
 
-    // Credit creator
-    let creator_id = store
-        .bills
-        .lock()
-        .unwrap()
-        .get(&bill_id)
+    let creator_id = store.bills.lock().unwrap().get(&bill_id)
         .map(|b| b.creator_id)
         .ok_or(ApiError { error: "Bill not found".into() })?;
 
-    // Don't credit creator for their own share
     if user_id != creator_id {
         credit_wallet(store, creator_id, share_kobo, &reference, "Bill split received");
     }
 
-    // Update bill status
-    let all_paid = store
-        .bill_participants
-        .lock()
-        .unwrap()
-        .iter()
-        .filter(|p| p.bill_id == bill_id)
-        .all(|p| p.paid);
+    // O(n) over participants for this bill — n ≤ 50
+    let participant_ids = store.bill_participant_index.lock().unwrap()
+        .get(&bill_id).cloned().unwrap_or_default();
+
+    let all_paid = {
+        let participants = store.bill_participants.lock().unwrap();
+        participant_ids.iter().all(|uid| {
+            participants.get(&(bill_id, *uid)).map(|p| p.paid).unwrap_or(false)
+        })
+    };
 
     if let Some(bill) = store.bills.lock().unwrap().get_mut(&bill_id) {
-        bill.status = if all_paid {
-            BillStatus::Settled
-        } else {
-            BillStatus::PartiallyPaid
-        };
+        bill.status = if all_paid { BillStatus::Settled } else { BillStatus::PartiallyPaid };
     }
 
     Ok(())
@@ -122,19 +99,16 @@ pub fn pay_bill_share(store: &Store, bill_id: Uuid, user_id: Uuid) -> Result<(),
 
 pub fn list_bills(store: &Store, user_id: Uuid, page: usize, per_page: usize) -> Vec<Bill> {
     let participants = store.bill_participants.lock().unwrap();
-    let bill_ids: Vec<Uuid> = participants
-        .iter()
-        .filter(|p| p.user_id == user_id)
-        .map(|p| p.bill_id)
+    let bill_ids: Vec<Uuid> = participants.keys()
+        .filter(|(_, u)| *u == user_id)
+        .map(|(b, _)| *b)
         .collect();
     drop(participants);
 
     let bills = store.bills.lock().unwrap();
-    bill_ids
-        .iter()
+    let mut result: Vec<Bill> = bill_ids.iter()
         .filter_map(|id| bills.get(id).cloned())
-        .rev()
-        .skip(page * per_page)
-        .take(per_page)
-        .collect()
+        .collect();
+    result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    result.into_iter().skip(page * per_page).take(per_page).collect()
 }

@@ -47,15 +47,30 @@ pub fn make_refresh_token(store: &Store, user_id: Uuid) -> String {
     token
 }
 
-pub fn verify_token(token: &str) -> Option<Uuid> {
+pub fn verify_token(store: &Store, token: &str) -> Option<Uuid> {
+    let secret = jwt_secret();
+    let data = decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(secret.as_bytes()),
+        &Validation::default(),
+    ).ok()?;
+
+    // Check JTI deny-list (logout invalidation)
+    if store.denied_jtis.lock().unwrap().contains(&data.claims.jti) {
+        return None;
+    }
+
+    Uuid::parse_str(&data.claims.sub).ok()
+}
+
+/// Extract JTI from a token without full verification (for logout)
+pub fn extract_jti(token: &str) -> Option<String> {
     let secret = jwt_secret();
     decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
         &Validation::default(),
-    )
-    .ok()
-    .and_then(|d| Uuid::parse_str(&d.claims.sub).ok())
+    ).ok().map(|d| d.claims.jti)
 }
 
 /// Rotate refresh token — single-use, returns new pair
@@ -138,6 +153,7 @@ fn validate_name(name: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+#[derive(Debug)]
 pub struct AuthTokens {
     pub access_token:  String,
     pub refresh_token: String,

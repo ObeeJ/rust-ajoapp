@@ -2,8 +2,10 @@ mod store;
 mod services;
 mod routes;
 mod middleware;
+#[cfg(test)]
+mod tests;
 
-use glideapi::App;
+use glideapi::{App, Config};
 use store::Store;
 
 #[derive(Clone)]
@@ -24,11 +26,16 @@ async fn main() {
         }
     }
 
+    let cors_origin = std::env::var("CORS_ORIGIN").ok();
     let state = AppState { store: Store::new() };
 
     println!("🚀 Cowri API running on http://0.0.0.0:3000");
 
     App::new()
+        .config(Config {
+            cors_origin,
+            ..Config::default()
+        })
         .state(state)
         // Auth
         .route("POST", "/v1/auth/register",          routes::register)
