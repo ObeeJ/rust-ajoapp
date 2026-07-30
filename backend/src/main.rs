@@ -51,7 +51,12 @@ async fn main() {
     tracing::info!("Outbox worker started");
 
     let cors_origin = std::env::var("CORS_ORIGIN").ok();
-    let state = AppState { store: Store::new(), db: pool };
+
+    // ── Hydrate in-memory store from Postgres ─────────────────────────────────
+    let store = store::Store::load_from_db(&pool).await
+        .expect("Failed to load store from DB");
+
+    let state = AppState { store, db: pool };
 
     tracing::info!("🚀 Cowri API on http://0.0.0.0:3000");
 

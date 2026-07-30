@@ -102,10 +102,16 @@ pub async fn register(req: Request) -> Response {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
     match auth_svc::register(&state.store, body) {
-        Ok(t) => set_auth_cookies(
-            ok(201, serde_json::json!({ "user": t.user, "wallet": t.wallet })),
-            &t.access_token, &t.refresh_token,
-        ),
+        Ok(t) => {
+            // Persist to Postgres (fire-and-forget — store is already updated)
+            let pin_hash = state.store.pins.lock().unwrap()
+                .get(&t.user.id).cloned().unwrap_or_default();
+            let _ = db::persist_user(&state.db, &t.user, &pin_hash, &t.wallet).await;
+            set_auth_cookies(
+                ok(201, serde_json::json!({ "user": t.user, "wallet": t.wallet })),
+                &t.access_token, &t.refresh_token,
+            )
+        }
         Err(e) if e.error.contains("already registered") => ok(409, e),
         Err(e) => ok(400, e),
     }
@@ -293,7 +299,10 @@ pub async fn create_ajo(req: Request) -> Response {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
     match crate::services::ajo::create_group(&state.store, user_id, body) {
-        Ok(g)  => ok(201, g),
+        Ok(g)  => {
+            let _ = db::persist_ajo_group(&state.db, &g, user_id).await;
+            ok(201, g)
+        }
         Err(e) => ok(400, e),
     }
 }
@@ -311,7 +320,10 @@ pub async fn join_ajo(req: Request) -> Response {
         Some(id) => id, None => return err(400, "Invalid group ID"),
     };
     match crate::services::ajo::join_group(&state.store, group_id, user_id) {
-        Ok(m)  => ok(200, m),
+        Ok(m)  => {
+            let _ = db::persist_ajo_join(&state.db, group_id, user_id, m.payout_position as i32).await;
+            ok(200, m)
+        }
         Err(e) if e.error.contains("full") || e.error.contains("Already") => ok(409, e),
         Err(e) => ok(400, e),
     }
@@ -324,7 +336,18 @@ pub async fn contribute_ajo(req: Request) -> Response {
         Some(id) => id, None => return err(400, "Invalid group ID"),
     };
     match crate::services::ajo::contribute(&state.store, group_id, user_id) {
-        Ok(_)  => ok(200, serde_json::json!({ "status": "contributed" })),
+        Ok(_)  => {
+            let g = state.store.ajo_groups.lock().unwrap().get(&group_id).cloned();
+            if let Some(g) = g {
+                let completed = g.status == AjoStatus::Completed;
+                let _ = db::persist_ajo_contribution(
+                    &state.db, group_id, user_id,
+                    if completed { g.current_cycle } else { g.current_cycle.saturating_sub(1) },
+                    g.current_cycle, completed,
+                ).await;
+            }
+            ok(200, serde_json::json!({ "status": "contributed" }))
+        }
         Err(e) if e.error.contains("Insufficient") => ok(402, e),
         Err(e) if e.error.contains("Already contributed") => ok(409, e),
         Err(e) => ok(400, e),
@@ -340,7 +363,19 @@ pub async fn create_bill(req: Request) -> Response {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
     match crate::services::bills::create_bill(&state.store, user_id, body) {
-        Ok(b)  => ok(201, b),
+        Ok(b)  => {
+            let participants: Vec<(uuid::Uuid, i64)> = state.store
+                .bill_participant_index.lock().unwrap()
+                .get(&b.id).cloned().unwrap_or_default()
+                .iter()
+                .filter_map(|uid| {
+                    state.store.bill_participants.lock().unwrap()
+                        .get(&(b.id, *uid)).map(|p| (*uid, p.share_kobo))
+                })
+                .collect();
+            let _ = db::persist_bill(&state.db, &b, &participants).await;
+            ok(201, b)
+        }
         Err(e) => ok(400, e),
     }
 }
@@ -359,7 +394,12 @@ pub async fn pay_bill(req: Request) -> Response {
         Some(id) => id, None => return err(400, "Invalid bill ID"),
     };
     match crate::services::bills::pay_bill_share(&state.store, bill_id, user_id) {
-        Ok(_)  => ok(200, serde_json::json!({ "status": "paid" })),
+        Ok(_)  => {
+            let all_paid = state.store.bills.lock().unwrap()
+                .get(&bill_id).map(|b| b.status == BillStatus::Settled).unwrap_or(false);
+            let _ = db::persist_bill_payment(&state.db, bill_id, user_id, all_paid).await;
+            ok(200, serde_json::json!({ "status": "paid" }))
+        }
         Err(e) if e.error.contains("Insufficient") => ok(402, e),
         Err(e) if e.error.contains("Already paid") => ok(409, e),
         Err(e) => ok(400, e),

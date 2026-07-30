@@ -9,6 +9,7 @@ CREATE TABLE users (
     name        TEXT        NOT NULL,
     phone       TEXT        NOT NULL UNIQUE,
     email       TEXT,
+    role        TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_users_phone ON users(phone);

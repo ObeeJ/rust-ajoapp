@@ -63,3 +63,42 @@ pub fn Spinner() -> impl IntoView {
         </div>
     }
 }
+
+#[component]
+pub fn Skeleton() -> impl IntoView {
+    view! {
+        <div class="space-y-3 animate-pulse">
+            <div class="h-16 bg-gray-100 rounded-2xl"></div>
+            <div class="h-16 bg-gray-100 rounded-2xl"></div>
+            <div class="h-16 bg-gray-100 rounded-2xl"></div>
+        </div>
+    }
+}
+
+#[component]
+pub fn Toast(
+    #[prop(into)] message: String,
+    #[prop(optional, into)] kind: Option<String>,
+    on_dismiss: impl Fn() + 'static,
+) -> impl IntoView {
+    let is_error = kind.as_deref() == Some("error");
+    let cls = if is_error {
+        "fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 rounded-2xl bg-red-600 px-4 py-3 text-white shadow-lg text-sm font-medium transition-all"
+    } else {
+        "fixed bottom-20 left-4 right-4 z-50 flex items-center gap-3 rounded-2xl bg-green-600 px-4 py-3 text-white shadow-lg text-sm font-medium transition-all"
+    };
+    view! {
+        <div class=cls role="status" aria-live="polite">
+            <span class="flex-1">{message}</span>
+            <button
+                class="ml-2 opacity-80 hover:opacity-100 cursor-pointer"
+                aria-label="Dismiss"
+                on:click=move |_| on_dismiss()
+            >
+                <svg class="w-4 h-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+    }
+}

@@ -83,10 +83,13 @@ pub fn debit_wallet(
         status: TransactionStatus::Success, created_at: now,
     });
 
-    // Stage outbox event — worker delivers this asynchronously
+    // Stage outbox event — include phone for SMS delivery
+    let phone = store.users.lock().unwrap()
+        .get(&user_id).map(|u| u.phone.clone()).unwrap_or_default();
     stage_outbox(store, "wallet.debited", serde_json::json!({
         "wallet_id": wallet_id, "amount_kobo": amount_kobo,
-        "reference": reference, "running_balance_kobo": running_balance
+        "reference": reference, "running_balance_kobo": running_balance,
+        "phone": phone
     }));
 
     Ok(())
@@ -143,9 +146,12 @@ pub fn credit_wallet(
         status: TransactionStatus::Success, created_at: now,
     });
 
+    let phone = store.users.lock().unwrap()
+        .get(&user_id).map(|u| u.phone.clone()).unwrap_or_default();
     stage_outbox(store, "wallet.credited", serde_json::json!({
         "wallet_id": wallet_id, "amount_kobo": amount_kobo,
-        "reference": reference, "running_balance_kobo": running_balance
+        "reference": reference, "running_balance_kobo": running_balance,
+        "phone": phone
     }));
 }
 

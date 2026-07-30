@@ -3,7 +3,7 @@ use gloo_net::http::Request as HttpRequest;
 use web_sys::RequestCredentials;
 
 use crate::state::API_BASE;
-use crate::components::{Button, Card, Badge, Spinner};
+use crate::components::{Button, Card, Badge, Spinner, Skeleton, Toast};
 
 /// All API calls include credentials so the browser sends the httpOnly cookie
 fn api_get(url: &str) -> gloo_net::http::RequestBuilder {
@@ -304,7 +304,7 @@ fn AjoTab() -> impl IntoView {
 
             // Groups list
             {move || if loading.get() {
-                view! { <Spinner /> }.into_any()
+                view! { <Skeleton /> }.into_any()
             } else if groups.get().is_empty() {
                 view! {
                     <div class="text-center py-10 text-gray-400">
@@ -403,7 +403,7 @@ fn BillsTab() -> impl IntoView {
             </Card>
 
             {move || if loading.get() {
-                view! { <Spinner /> }.into_any()
+                view! { <Skeleton /> }.into_any()
             } else if bills.get().is_empty() {
                 view! {
                     <div class="text-center py-10 text-gray-400">
