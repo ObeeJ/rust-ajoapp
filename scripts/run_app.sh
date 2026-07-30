@@ -6,44 +6,35 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ENV_FILE="$ROOT/backend/.env"
 
-# ── 1. Check required tools ───────────────────────────────────────────────────
-for cmd in cargo curl; do
+for cmd in cargo curl openssl; do
   command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd not found"; exit 1; }
 done
 
-# ── 2. Bootstrap .env if missing ─────────────────────────────────────────────
+# ── Bootstrap .env ────────────────────────────────────────────────────────────
 if [ ! -f "$ENV_FILE" ]; then
-  echo "Creating backend/.env from example..."
   cp "$ROOT/backend/.env.example" "$ENV_FILE"
-
-  # Generate a cryptographically random JWT_SECRET (32 bytes hex = 64 chars)
   JWT_SECRET=$(openssl rand -hex 32)
   sed -i "s/^JWT_SECRET=$/JWT_SECRET=$JWT_SECRET/" "$ENV_FILE"
-
-  echo ""
-  echo "⚠️  backend/.env created. Fill in PAYSTACK_SECRET_KEY before testing payments."
-  echo "   JWT_SECRET has been auto-generated."
-  echo ""
+  echo "✓ backend/.env created — fill in PAYSTACK_SECRET_KEY and DATABASE_URL"
 fi
 
-# ── 3. Validate required env vars ────────────────────────────────────────────
-source "$ENV_FILE"
-: "${JWT_SECRET:?JWT_SECRET must be set in backend/.env}"
-: "${PAYSTACK_SECRET_KEY:?PAYSTACK_SECRET_KEY must be set in backend/.env}"
+set -a; source "$ENV_FILE"; set +a
 
-export JWT_SECRET PAYSTACK_SECRET_KEY
+: "${JWT_SECRET:?JWT_SECRET must be set}"
+: "${PAYSTACK_SECRET_KEY:?PAYSTACK_SECRET_KEY must be set}"
+: "${DATABASE_URL:?DATABASE_URL must be set (e.g. postgres://user:pass@localhost/cowri)}"
+
 export CORS_ORIGIN="${CORS_ORIGIN:-http://localhost:8080}"
 export APP_URL="${APP_URL:-http://localhost:3000}"
 
-# ── 4. Build ──────────────────────────────────────────────────────────────────
-echo "Building backend..."
+# ── Build ─────────────────────────────────────────────────────────────────────
+echo "Building..."
 cd "$ROOT"
 cargo build -p backend --quiet
 
-# ── 5. Run ────────────────────────────────────────────────────────────────────
 echo ""
-echo "🚀 Starting Cowri API on http://localhost:3000"
+echo "🚀 Cowri API → http://localhost:3000"
+echo "   DB          : $DATABASE_URL"
 echo "   CORS_ORIGIN : $CORS_ORIGIN"
-echo "   APP_URL     : $APP_URL"
 echo ""
 exec "$ROOT/target/debug/backend"

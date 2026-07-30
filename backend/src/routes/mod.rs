@@ -7,6 +7,7 @@ use chrono::Utc;
 use crate::AppState;
 use crate::services::auth as auth_svc;
 use crate::middleware::extract_user;
+use crate::db;
 
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize     = 100;
@@ -179,33 +180,26 @@ pub async fn fund_wallet(req: Request) -> Response {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
 
-    // Idempotency — if same key seen, return cached response
-    let idem_key = req.headers.get("x-idempotency-key").cloned()
+    // Postgres-backed idempotency (survives restarts)
+    let idem_key = req.headers.get("x-idempotency-key")
         .map(|k| format!("fund-{}-{}", user_id, k));
 
     if let Some(ref key) = idem_key {
-        if let Some(cached) = state.store.idempotency_cache.lock().unwrap().get(key) {
-            // Return cached response (expires after 24h — enforced on read)
-            let age = Utc::now().signed_duration_since(cached.created_at).num_hours();
-            if age < 24 {
-                return Response { status: cached.status, body: cached.body.clone(), headers: vec![] };
-            }
+        if let Some((status, body)) = db::get_idempotency(&state.db, key).await {
+            return Response { status, body, headers: vec![] };
         }
     }
 
     let reference = format!("fund-{}-{}", user_id, uuid::Uuid::new_v4());
-    let resp = match crate::services::wallet::init_paystack_payment(body.amount_kobo, &body.email, &reference).await {
+    let resp = match crate::services::wallet::init_paystack_payment(
+        body.amount_kobo, &body.email, &reference,
+    ).await {
         Ok(res) => ok(200, res),
         Err(e)  => ok(502, e),
     };
 
-    // Cache the response against the idempotency key
     if let Some(key) = idem_key {
-        state.store.idempotency_cache.lock().unwrap().insert(key, crate::store::IdempotencyEntry {
-            status:     resp.status,
-            body:       resp.body.clone(),
-            created_at: Utc::now(),
-        });
+        db::set_idempotency(&state.db, &key, resp.status, &resp.body).await;
     }
 
     resp
@@ -239,8 +233,11 @@ pub async fn paystack_webhook(req: Request) -> Response {
         let reference   = body["data"]["reference"].as_str().unwrap_or("");
         let amount_kobo = body["data"]["amount"].as_i64().unwrap_or(0);
 
-        // Primary lookup: phone number (always present at registration)
-        // Fallback: email
+        // Webhook idempotency — check if this reference was already credited in the ledger
+        if db::webhook_already_processed(&state.db, reference).await {
+            return ok(200, serde_json::json!({ "status": "already_processed" }));
+        }
+
         let phone = body["data"]["metadata"]["phone"].as_str()
             .or_else(|| body["data"]["customer"]["phone"].as_str());
         let email = body["data"]["customer"]["email"].as_str();
@@ -248,24 +245,24 @@ pub async fn paystack_webhook(req: Request) -> Response {
         let user_id = {
             let users  = state.store.users.lock().unwrap();
             let phones = state.store.phone_index.lock().unwrap();
-
             phone
                 .and_then(|p| phones.get(p).copied())
-                .or_else(|| {
-                    email.and_then(|e| {
-                        users.values().find(|u| u.email.as_deref() == Some(e)).map(|u| u.id)
-                    })
-                })
+                .or_else(|| email.and_then(|e| {
+                    users.values().find(|u| u.email.as_deref() == Some(e)).map(|u| u.id)
+                }))
         };
 
         if let Some(uid) = user_id {
             if amount_kobo > 0 && !reference.is_empty() {
+                // Persist to DB (atomic: ledger + outbox in one transaction)
+                let wallet_id = state.store.wallets.lock().unwrap()
+                    .get(&uid).map(|w| w.id);
+                if let Some(wid) = wallet_id {
+                    let _ = db::credit(&state.db, wid, amount_kobo, reference, "Wallet top-up via Paystack").await;
+                }
+                // Also update in-memory cache
                 crate::services::wallet::credit_wallet(
-                    &state.store,
-                    uid,
-                    amount_kobo,
-                    reference,
-                    "Wallet top-up via Paystack",
+                    &state.store, uid, amount_kobo, reference, "Wallet top-up via Paystack",
                 );
             }
         }
