@@ -37,10 +37,10 @@ pub fn DashboardPage(
             // Quick actions
             <div class="px-4 -mt-4">
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 grid grid-cols-4 gap-2">
-                    {quick_action("💰", "Top Up", move || set_tab.set("wallet"))}
-                    {quick_action("🤝", "Ajo", move || set_tab.set("ajo"))}
-                    {quick_action("🧾", "Split", move || set_tab.set("bills"))}
-                    {quick_action("📋", "History", move || set_tab.set("history"))}
+                    {quick_action(svg_topup(),   "Top Up",  move || set_tab.set("wallet"))}
+                    {quick_action(svg_ajo(),     "Ajo",     move || set_tab.set("ajo"))}
+                    {quick_action(svg_split(),   "Split",   move || set_tab.set("bills"))}
+                    {quick_action(svg_history(), "History", move || set_tab.set("history"))}
                 </div>
             </div>
 
@@ -55,34 +55,78 @@ pub fn DashboardPage(
             </div>
 
             // Bottom nav
-            <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around py-2 z-10">
-                {nav_item("🏠", "Home",    "wallet",  tab, set_tab)}
-                {nav_item("🤝", "Ajo",     "ajo",     tab, set_tab)}
-                {nav_item("🧾", "Bills",   "bills",   tab, set_tab)}
-                {nav_item("📋", "History", "history", tab, set_tab)}
+            <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around py-2 z-10" aria-label="Main navigation">
+                {nav_item(svg_topup(),   "Home",    "wallet",  tab, set_tab)}
+                {nav_item(svg_ajo(),     "Ajo",     "ajo",     tab, set_tab)}
+                {nav_item(svg_split(),   "Bills",   "bills",   tab, set_tab)}
+                {nav_item(svg_history(), "History", "history", tab, set_tab)}
             </nav>
         </div>
     }
 }
 
-fn quick_action(icon: &'static str, label: &'static str, on_click: impl Fn() + 'static) -> impl IntoView {
+fn quick_action(icon: impl IntoView, label: &'static str, on_click: impl Fn() + 'static) -> impl IntoView {
     view! {
-        <button class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-50 transition" on:click=move |_| on_click()>
-            <span class="text-xl">{icon}</span>
+        <button
+            class="flex flex-col items-center gap-1 p-2 rounded-xl hover:bg-gray-50 transition cursor-pointer"
+            aria-label=label
+            on:click=move |_| on_click()
+        >
+            <span class="w-6 h-6 text-green-600" aria-hidden="true">{icon}</span>
             <span class="text-xs text-gray-600 font-medium">{label}</span>
         </button>
     }
 }
 
-fn nav_item(icon: &'static str, label: &'static str, value: &'static str, tab: ReadSignal<&'static str>, set_tab: WriteSignal<&'static str>) -> impl IntoView {
+fn nav_item(icon: impl IntoView, label: &'static str, value: &'static str, tab: ReadSignal<&'static str>, set_tab: WriteSignal<&'static str>) -> impl IntoView {
     view! {
         <button
-            class=move || if tab.get() == value { "flex flex-col items-center gap-0.5 px-4 text-green-600" } else { "flex flex-col items-center gap-0.5 px-4 text-gray-400" }
+            class=move || if tab.get() == value {
+                "flex flex-col items-center gap-0.5 px-4 text-green-600 cursor-pointer"
+            } else {
+                "flex flex-col items-center gap-0.5 px-4 text-gray-400 cursor-pointer"
+            }
+            aria-label=label
+            aria-current=move || if tab.get() == value { "page" } else { "false" }
             on:click=move |_| set_tab.set(value)
         >
-            <span class="text-lg">{icon}</span>
+            <span class="w-5 h-5" aria-hidden="true">{icon}</span>
             <span class="text-xs font-medium">{label}</span>
         </button>
+    }
+}
+
+// ── SVG Icons ─────────────────────────────────────────────────────────────────
+
+fn svg_topup() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+        </svg>
+    }
+}
+
+fn svg_ajo() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z" />
+        </svg>
+    }
+}
+
+fn svg_split() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 14.25l6-6m4.5-3.493V21.75l-3.75-1.5-3.75 1.5-3.75-1.5-3.75 1.5V4.757c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0c1.1.128 1.907 1.077 1.907 2.185Z" />
+        </svg>
+    }
+}
+
+fn svg_history() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+        </svg>
     }
 }
 
