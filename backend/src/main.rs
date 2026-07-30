@@ -68,11 +68,16 @@ async fn main() {
         .route("POST", "/v1/webhook/paystack",     routes::paystack_webhook)
         .route("GET",  "/v1/ajo",                  routes::list_ajo)
         .route("POST", "/v1/ajo",                  routes::create_ajo)
+        .route("GET",  "/v1/ajo/:id",              routes::get_ajo)
+        .route("GET",  "/v1/ajo/:id/invite",       routes::ajo_invite)
         .route("POST", "/v1/ajo/:id/join",         routes::join_ajo)
         .route("POST", "/v1/ajo/:id/contribute",   routes::contribute_ajo)
         .route("GET",  "/v1/bills",                routes::list_bills)
         .route("POST", "/v1/bills",                routes::create_bill)
+        .route("GET",  "/v1/bills/:id",            routes::get_bill_detail)
         .route("POST", "/v1/bills/:id/pay",        routes::pay_bill)
+        .route("GET",  "/v1/health",               routes::health)
+        .route("GET",  "/v1/ledger/check",         routes::ledger_check)
         .listen("0.0.0.0:3000")
         .await;
 }

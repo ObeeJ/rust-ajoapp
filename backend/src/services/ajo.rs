@@ -104,7 +104,11 @@ pub fn contribute(store: &Store, group_id: Uuid, contributor_id: Uuid) -> Result
     debit_wallet(store, contributor_id, group.contribution_kobo, &reference,
         &format!("Ajo contribution: {}", group.name))?;
 
-    credit_wallet(store, receiver_id, group.contribution_kobo, &reference,
+    // Platform fee: 0.5% of contribution, deducted from payout (integer math only)
+    let fee_kobo    = group.contribution_kobo / 200; // 0.5% — integer division, no floats
+    let payout_kobo = group.contribution_kobo - fee_kobo;
+
+    credit_wallet(store, receiver_id, payout_kobo, &reference,
         &format!("Ajo payout: {}", group.name));
 
     store.ajo_contributions.lock().unwrap()
@@ -142,4 +146,38 @@ pub fn list_groups(store: &Store, user_id: Uuid) -> Vec<AjoGroup> {
 
     let groups = store.ajo_groups.lock().unwrap();
     group_ids.iter().filter_map(|id| groups.get(id).cloned()).collect()
+}
+
+pub fn get_group(store: &Store, group_id: Uuid, user_id: Uuid) -> Result<serde_json::Value, ApiError> {
+    let groups = store.ajo_groups.lock().unwrap();
+    let group = groups.get(&group_id)
+        .ok_or(ApiError { error: "Group not found".into() })?.clone();
+    drop(groups);
+
+    // Only members can view
+    if !store.ajo_members.lock().unwrap().contains_key(&(group_id, user_id)) {
+        return Err(ApiError { error: "Not a member".into() });
+    }
+
+    let members: Vec<_> = store.ajo_members.lock().unwrap()
+        .iter()
+        .filter(|((g, _), _)| *g == group_id)
+        .map(|((_, u), m)| serde_json::json!({
+            "user_id": u,
+            "payout_position": m.payout_position,
+            "has_received": m.has_received,
+        }))
+        .collect();
+
+    let contributions_this_cycle = store.ajo_contributions.lock().unwrap()
+        .iter()
+        .filter(|(g, _, c)| *g == group_id && *c == group.current_cycle)
+        .count();
+
+    Ok(serde_json::json!({
+        "group": group,
+        "members": members,
+        "contributions_this_cycle": contributions_this_cycle,
+        "members_total": members.len(),
+    }))
 }

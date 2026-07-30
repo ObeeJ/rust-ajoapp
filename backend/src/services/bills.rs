@@ -112,3 +112,37 @@ pub fn list_bills(store: &Store, user_id: Uuid, page: usize, per_page: usize) ->
     result.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     result.into_iter().skip(page * per_page).take(per_page).collect()
 }
+
+pub fn get_bill(store: &Store, bill_id: Uuid, user_id: Uuid) -> Result<serde_json::Value, ApiError> {
+    let bill = store.bills.lock().unwrap().get(&bill_id).cloned()
+        .ok_or(ApiError { error: "Bill not found".into() })?;
+
+    // Only participants can view
+    if !store.bill_participants.lock().unwrap().contains_key(&(bill_id, user_id)) {
+        return Err(ApiError { error: "Not a participant".into() });
+    }
+
+    let participant_ids = store.bill_participant_index.lock().unwrap()
+        .get(&bill_id).cloned().unwrap_or_default();
+
+    let participants: Vec<_> = {
+        let ps = store.bill_participants.lock().unwrap();
+        participant_ids.iter().filter_map(|uid| {
+            ps.get(&(bill_id, *uid)).map(|p| serde_json::json!({
+                "user_id": uid,
+                "share_kobo": p.share_kobo,
+                "paid": p.paid,
+            }))
+        }).collect()
+    };
+
+    let my_share = store.bill_participants.lock().unwrap()
+        .get(&(bill_id, user_id))
+        .map(|p| serde_json::json!({ "share_kobo": p.share_kobo, "paid": p.paid }));
+
+    Ok(serde_json::json!({
+        "bill": bill,
+        "participants": participants,
+        "my_share": my_share,
+    }))
+}

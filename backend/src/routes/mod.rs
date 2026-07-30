@@ -8,6 +8,7 @@ use crate::AppState;
 use crate::services::auth as auth_svc;
 use crate::middleware::extract_user;
 use crate::db;
+use sqlx;
 
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize     = 100;
@@ -351,4 +352,102 @@ pub async fn pay_bill(req: Request) -> Response {
         Err(e) if e.error.contains("Already paid") => ok(409, e),
         Err(e) => ok(400, e),
     }
+}
+
+// ── Detail views ──────────────────────────────────────────────────────────────
+
+pub async fn get_ajo(req: Request) -> Response {
+    let state   = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let user_id = match auth(&req)  { Ok(id) => id, Err(e) => return e };
+    let group_id = match req.params.get("id").and_then(|s| uuid::Uuid::parse_str(s).ok()) {
+        Some(id) => id, None => return err(400, "Invalid group ID"),
+    };
+    match crate::services::ajo::get_group(&state.store, group_id, user_id) {
+        Ok(v)  => ok(200, v),
+        Err(e) => ok(404, e),
+    }
+}
+
+pub async fn get_bill_detail(req: Request) -> Response {
+    let state   = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let user_id = match auth(&req)  { Ok(id) => id, Err(e) => return e };
+    let bill_id = match req.params.get("id").and_then(|s| uuid::Uuid::parse_str(s).ok()) {
+        Some(id) => id, None => return err(400, "Invalid bill ID"),
+    };
+    match crate::services::bills::get_bill(&state.store, bill_id, user_id) {
+        Ok(v)  => ok(200, v),
+        Err(e) => ok(404, e),
+    }
+}
+
+// ── Invite link ───────────────────────────────────────────────────────────────
+
+pub async fn ajo_invite(req: Request) -> Response {
+    let state   = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let user_id = match auth(&req)  { Ok(id) => id, Err(e) => return e };
+    let group_id = match req.params.get("id").and_then(|s| uuid::Uuid::parse_str(s).ok()) {
+        Some(id) => id, None => return err(400, "Invalid group ID"),
+    };
+
+    // Only admin can generate invite
+    let is_admin = state.store.ajo_groups.lock().unwrap()
+        .get(&group_id).map(|g| g.admin_id == user_id).unwrap_or(false);
+    if !is_admin {
+        return err(403, "Only the group admin can generate an invite link");
+    }
+
+    let app_url = std::env::var("APP_URL").unwrap_or_else(|_| "https://cowri.app".into());
+    ok(200, serde_json::json!({
+        "invite_url": format!("{app_url}/ajo/join/{group_id}"),
+        "group_id": group_id,
+    }))
+}
+
+// ── Reconciliation ────────────────────────────────────────────────────────────
+
+pub async fn ledger_check(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+
+    let wallets: Vec<_> = state.store.wallets.lock().unwrap().values().cloned().collect();
+    let mut violations = Vec::new();
+    let mut checked    = 0usize;
+
+    for wallet in &wallets {
+        checked += 1;
+        if let Err(msg) = crate::services::wallet::assert_ledger_invariant(&state.store, wallet.id) {
+            violations.push(serde_json::json!({
+                "wallet_id": wallet.id,
+                "user_id":   wallet.user_id,
+                "error":     msg,
+            }));
+        }
+    }
+
+    let status = if violations.is_empty() { "ok" } else { "violations_found" };
+    ok(200, serde_json::json!({
+        "status":     status,
+        "checked":    checked,
+        "violations": violations,
+    }))
+}
+
+// ── Health ────────────────────────────────────────────────────────────────────
+
+pub async fn health(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+
+    // Ping Postgres
+    let db_ok = sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+        .is_ok();
+
+    let status = if db_ok { "ok" } else { "degraded" };
+    let code   = if db_ok { 200 } else { 503 };
+
+    ok(code, serde_json::json!({
+        "status":  status,
+        "db":      if db_ok { "ok" } else { "unreachable" },
+        "version": env!("CARGO_PKG_VERSION"),
+    }))
 }

@@ -143,19 +143,36 @@ fn svg_history() -> impl IntoView {
 
 #[component]
 fn WalletTab() -> impl IntoView {
-    let (amount, set_amount) = signal(String::new());
-    let (email, set_email) = signal(String::new());
-    let (msg, set_msg) = signal(Option::<String>::None);
+    let (amount, set_amount)   = signal(String::new());
+    let (email, set_email)     = signal(String::new());
+    let (msg, set_msg)         = signal(Option::<String>::None);
+    let (balance, set_balance) = signal(Option::<i64>::None);
+    let (loading, set_loading) = signal(false);
+
+    // Refresh balance from server (called on mount and after Paystack redirect)
+    let refresh_balance = move || {
+        set_loading.set(true);
+        leptos::task::spawn_local(async move {
+            if let Ok(r) = api_get(&format!("{API_BASE}/wallet")).send().await {
+                if let Ok(data) = r.json::<serde_json::Value>().await {
+                    set_balance.set(data["available_kobo"].as_i64());
+                }
+            }
+            set_loading.set(false);
+        });
+    };
+
+    // Auto-refresh on mount — catches Paystack redirect return
+    refresh_balance();
 
     let fund = move || {
         let amount = amount.get();
-        let email = email.get();
+        let email  = email.get();
         let Ok(kobo) = amount.parse::<f64>().map(|n| (n * 100.0) as i64) else {
             set_msg.set(Some("Enter a valid amount".into())); return;
         };
 
         leptos::task::spawn_local(async move {
-            
             let res = api_post(&format!("{API_BASE}/wallet/fund"))
                 .header("Content-Type", "application/json")
                 .body(serde_json::json!({ "amount_kobo": kobo, "email": email }).to_string())
@@ -175,7 +192,21 @@ fn WalletTab() -> impl IntoView {
 
     view! {
         <div class="space-y-4">
-            <h2 class="text-base font-semibold text-gray-800">"Top Up Wallet"</h2>
+            <div class="flex items-center justify-between">
+                <h2 class="text-base font-semibold text-gray-800">"Top Up Wallet"</h2>
+                <button
+                    class="text-xs text-green-600 font-medium flex items-center gap-1 cursor-pointer"
+                    aria-label="Refresh balance"
+                    on:click=move |_| refresh_balance()
+                >
+                    <svg class=move || format!("w-3 h-3 {}", if loading.get() { "animate-spin" } else { "" })
+                         xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                    </svg>
+                    {move || balance.get().map(|b| format!("₦{:,.2}", b as f64 / 100.0)).unwrap_or_default()}
+                </button>
+            </div>
             <Card>
                 <div class="space-y-3">
                     <div>
@@ -196,12 +227,14 @@ fn WalletTab() -> impl IntoView {
                             on:input=move |e| set_email.set(event_target_value(&e))
                         />
                     </div>
-                    {move || msg.get().map(|m| view! { <p class="text-sm text-red-600">{m}</p> })}
+                    {move || msg.get().map(|m| view! { <p class="text-sm text-red-600" role="alert">{m}</p> })}
                     <Button label="Pay with Paystack" on_click=fund />
                 </div>
             </Card>
             <div class="flex items-center gap-2 text-xs text-gray-400 justify-center">
-                <span>"🔒"</span>
+                <svg class="w-3 h-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
                 <span>"Secured by Paystack · No card stored"</span>
             </div>
         </div>
