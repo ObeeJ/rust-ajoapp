@@ -19,7 +19,7 @@ pub fn DashboardPage(
             <header class="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                 <div class="flex items-center gap-2">
                     <div class="w-8 h-8 rounded-xl bg-green-600 text-white text-sm font-bold flex items-center justify-center">"₦"</div>
-                    <span class="font-bold text-gray-900">"Sanasana"</span>
+                    <span class="font-bold text-gray-900">"Cowri"</span>
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="text-sm text-gray-600">{format!("Hi, {}", user_name.split_whitespace().next().unwrap_or(&user_name))}</span>

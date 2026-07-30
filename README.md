@@ -1,4 +1,4 @@
-# Sanasana
+# Cowri
 
 A fintech web application for Nigerians — digital rotating savings (Ajo/Esusu), bill splitting, and wallet management with Paystack payments.
 
@@ -30,7 +30,7 @@ Built with Rust across the full stack: REST API on the backend, WebAssembly on t
 ## Project Structure
 
 ```
-sanasana/
+cowri/
 ├── shared/       # Shared types and DTOs (User, Wallet, AjoGroup, Bill)
 ├── backend/      # REST API
 │   └── src/

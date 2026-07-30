@@ -74,7 +74,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
                     <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-600 text-white text-2xl font-bold mb-3 shadow-lg">
                         "₦"
                     </div>
-                    <h1 class="text-2xl font-bold text-gray-900">"Sanasana"</h1>
+                    <h1 class="text-2xl font-bold text-gray-900">"Cowri"</h1>
                     <p class="text-sm text-gray-500 mt-1">"Save together. Split easy. Pay fast."</p>
                 </div>
 

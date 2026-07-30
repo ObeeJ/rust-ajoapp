@@ -1,4 +1,3 @@
-use leptos::prelude::*;
 use serde::{Deserialize, Serialize};
 
 pub const API_BASE: &str = "http://localhost:3000";

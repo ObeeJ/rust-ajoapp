@@ -2,7 +2,7 @@ use leptos::prelude::*;
 
 #[component]
 pub fn Button(
-    #[prop(into)] label: String,
+    #[prop(into)] label: MaybeSignal<String>,
     #[prop(optional, into)] variant: Option<String>,
     #[prop(optional)] disabled: bool,
     on_click: impl Fn() + 'static,
@@ -16,7 +16,7 @@ pub fn Button(
     };
     view! {
         <button class=style disabled=disabled on:click=move |_| on_click()>
-            {label}
+            {move || label.get()}
         </button>
     }
 }

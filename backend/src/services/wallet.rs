@@ -79,7 +79,7 @@ pub async fn init_paystack_payment(amount_kobo: i64, email: &str, reference: &st
             "email": email,
             "amount": amount_kobo,
             "reference": reference,
-            "callback_url": "https://sanasana.app/wallet/verify"
+            "callback_url": "https://cowri.app/wallet/verify"
         }))
         .send()
         .await

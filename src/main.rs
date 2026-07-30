@@ -32,7 +32,7 @@ async fn main() {
     App::new()
         .state(state)
         .route("GET", "/health", |_req: Request| async {
-            json_response(200, serde_json::json!({ "status": "ok", "service": "sanasana" }))
+            json_response(200, serde_json::json!({ "status": "ok", "service": "cowri" }))
         })
         .route("GET", "/logs", |req: Request| async move {
             let State(state) = State::<AppState>::from_request(&req).unwrap();

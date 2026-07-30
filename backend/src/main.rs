@@ -17,7 +17,7 @@ async fn main() {
 
     let state = AppState { store: Store::new() };
 
-    println!("🚀 Sanasana API running on http://0.0.0.0:3000");
+    println!("🚀 Cowri API running on http://0.0.0.0:3000");
     println!("📖 Docs: http://0.0.0.0:3000/_docs");
 
     App::new()
