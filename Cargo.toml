@@ -1,3 +1,3 @@
 [workspace]
-members = ["backend", "frontend", "shared"]
+members = ["backend", "frontend", "shared", "glideapi"]
 resolver = "2"

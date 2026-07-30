@@ -2,7 +2,6 @@ use glideapi::{FromRequest, Json, Request, Response};
 use hmac::{Hmac, Mac};
 use sha2::Sha512;
 use shared::*;
-use serde::Deserialize;
 
 use crate::AppState;
 use crate::services::auth as auth_svc;
@@ -11,12 +10,44 @@ use crate::middleware::extract_user;
 const DEFAULT_PAGE_SIZE: usize = 20;
 const MAX_PAGE_SIZE: usize     = 100;
 
+/// Parse a single named value from a Cookie header string
+fn parse_cookie(header: &str, name: &str) -> Option<String> {
+    header.split(';').find_map(|part| {
+        let part = part.trim();
+        let (k, v) = part.split_once('=')?;
+        if k.trim() == name { Some(v.trim().to_string()) } else { None }
+    })
+}
+
 fn ok<T: serde::Serialize>(status: u16, v: T) -> Response {
-    Response { status, body: serde_json::to_string(&v).unwrap_or_else(|_| "{}".into()) }
+    Response {
+        status,
+        body: serde_json::to_string(&v).unwrap_or_else(|_| "{}".into()),
+        headers: vec![],
+    }
 }
 
 fn err(status: u16, msg: &str) -> Response {
     ok(status, ApiError { error: msg.into() })
+}
+
+/// Build a Secure, HttpOnly, SameSite=Strict cookie value
+fn cookie(name: &str, value: &str, max_age_secs: u32) -> String {
+    format!(
+        "{name}={value}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age={max_age_secs}"
+    )
+}
+
+fn set_auth_cookies(mut resp: Response, access: &str, refresh: &str) -> Response {
+    resp.headers.push(("Set-Cookie".into(), cookie("access_token",  access,  900)));       // 15 min
+    resp.headers.push(("Set-Cookie".into(), cookie("refresh_token", refresh, 604800)));    // 7 days
+    resp
+}
+
+fn clear_auth_cookies(mut resp: Response) -> Response {
+    resp.headers.push(("Set-Cookie".into(), cookie("access_token",  "", 0)));
+    resp.headers.push(("Set-Cookie".into(), cookie("refresh_token", "", 0)));
+    resp
 }
 
 fn parse_pagination(req: &Request) -> (usize, usize) {
@@ -50,26 +81,17 @@ fn auth(req: &Request) -> Result<uuid::Uuid, Response> {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-#[derive(serde::Serialize)]
-struct TokenResponse {
-    access_token:  String,
-    refresh_token: String,
-    user:          User,
-    wallet:        Wallet,
-}
-
 pub async fn register(req: Request) -> Response {
     let state = match state(&req) { Ok(s) => s, Err(e) => return e };
     let Json(body) = match Json::<RegisterRequest>::from_request(&req) {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
     match auth_svc::register(&state.store, body) {
-        Ok(t) => ok(201, TokenResponse {
-            access_token:  t.access_token,
-            refresh_token: t.refresh_token,
-            user:          t.user,
-            wallet:        t.wallet,
-        }),
+        Ok(t) => set_auth_cookies(
+            ok(201, serde_json::json!({ "user": t.user, "wallet": t.wallet })),
+            &t.access_token,
+            &t.refresh_token,
+        ),
         Err(e) => ok(400, e),
     }
 }
@@ -80,29 +102,46 @@ pub async fn login(req: Request) -> Response {
         Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
     };
     match auth_svc::login(&state.store, body) {
-        Ok(t) => ok(200, TokenResponse {
-            access_token:  t.access_token,
-            refresh_token: t.refresh_token,
-            user:          t.user,
-            wallet:        t.wallet,
-        }),
+        Ok(t) => set_auth_cookies(
+            ok(200, serde_json::json!({ "user": t.user, "wallet": t.wallet })),
+            &t.access_token,
+            &t.refresh_token,
+        ),
         Err(e) => ok(401, e),
     }
 }
 
-#[derive(Deserialize)]
-struct RefreshRequest { refresh_token: String }
+pub async fn logout(req: Request) -> Response {
+    // Optionally revoke refresh token if present in cookie
+    if let Some(state) = state(&req).ok() {
+        if let Some(rt) = req.headers.get("cookie")
+            .and_then(|c| parse_cookie(c, "refresh_token"))
+        {
+            // Mark as used so it can't be rotated again
+            if let Ok((_, _)) = auth_svc::rotate_refresh_token(&state.store, &rt) {}
+        }
+    }
+    clear_auth_cookies(ok(200, serde_json::json!({ "status": "logged out" })))
+}
 
 pub async fn refresh_token(req: Request) -> Response {
     let state = match state(&req) { Ok(s) => s, Err(e) => return e };
-    let Json(body) = match Json::<RefreshRequest>::from_request(&req) {
-        Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
+
+    // Read refresh token from httpOnly cookie
+    let rt = req.headers.get("cookie")
+        .and_then(|c| parse_cookie(c, "refresh_token"));
+
+    let rt = match rt {
+        Some(t) => t,
+        None => return err(401, "No refresh token"),
     };
-    match auth_svc::rotate_refresh_token(&state.store, &body.refresh_token) {
-        Ok((access, refresh)) => ok(200, serde_json::json!({
-            "access_token": access,
-            "refresh_token": refresh,
-        })),
+
+    match auth_svc::rotate_refresh_token(&state.store, &rt) {
+        Ok((access, refresh)) => set_auth_cookies(
+            ok(200, serde_json::json!({ "status": "refreshed" })),
+            &access,
+            &refresh,
+        ),
         Err(e) => ok(401, e),
     }
 }

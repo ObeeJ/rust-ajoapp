@@ -2,7 +2,7 @@ use leptos::prelude::*;
 use gloo_net::http::Request;
 use serde_json::json;
 
-use crate::state::{save_tokens, API_BASE};
+use crate::state::API_BASE;
 use crate::components::{Button, Input};
 
 #[component]
@@ -46,6 +46,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
 
             let res = Request::post(&url)
                 .header("Content-Type", "application/json")
+                .credentials(web_sys::RequestCredentials::Include) // receive Set-Cookie
                 .body(body.to_string())
                 .unwrap()
                 .send()
@@ -56,12 +57,10 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
             match res {
                 Ok(r) if r.ok() => {
                     let data: serde_json::Value = r.json().await.unwrap_or_default();
-                    let access  = data["access_token"].as_str().unwrap_or("").to_string();
-                    let refresh = data["refresh_token"].as_str().unwrap_or("").to_string();
+                    // Tokens are in httpOnly cookies — we only read user/wallet from body
                     let uname   = data["user"]["name"].as_str().unwrap_or("").to_string();
                     let balance = data["wallet"]["balance_kobo"].as_i64().unwrap_or(0);
-                    save_tokens(&access, &refresh);
-                    on_login(access, uname, balance);
+                    on_login(String::new(), uname, balance);
                 }
                 Ok(r) => {
                     let data: serde_json::Value = r.json().await.unwrap_or_default();

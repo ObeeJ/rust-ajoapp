@@ -1,8 +1,17 @@
 use leptos::prelude::*;
 use gloo_net::http::Request as HttpRequest;
+use web_sys::RequestCredentials;
 
-use crate::state::{get_token, API_BASE};
+use crate::state::API_BASE;
 use crate::components::{Button, Card, Badge, Spinner};
+
+/// All API calls include credentials so the browser sends the httpOnly cookie
+fn api_get(url: &str) -> gloo_net::http::RequestBuilder {
+    api_get(url).credentials(RequestCredentials::Include)
+}
+fn api_post(url: &str) -> gloo_net::http::RequestBuilder {
+    api_post(url).credentials(RequestCredentials::Include)
+}
 
 #[component]
 pub fn DashboardPage(
@@ -146,9 +155,8 @@ fn WalletTab() -> impl IntoView {
         };
 
         leptos::task::spawn_local(async move {
-            let token = get_token().unwrap_or_default();
-            let res = HttpRequest::post(&format!("{API_BASE}/wallet/fund"))
-                .header("Authorization", &format!("Bearer {token}"))
+            
+            let res = api_post(&format!("{API_BASE}/wallet/fund"))
                 .header("Content-Type", "application/json")
                 .body(serde_json::json!({ "amount_kobo": kobo, "email": email }).to_string())
                 .unwrap()
@@ -212,9 +220,8 @@ fn AjoTab() -> impl IntoView {
 
     let fetch_groups = move || {
         leptos::task::spawn_local(async move {
-            let token = get_token().unwrap_or_default();
-            if let Ok(r) = HttpRequest::get(&format!("{API_BASE}/ajo"))
-                .header("Authorization", &format!("Bearer {token}"))
+            
+            if let Ok(r) = api_get(&format!("{API_BASE}/ajo"))
                 .send().await
             {
                 let data: Vec<serde_json::Value> = r.json().await.unwrap_or_default();
@@ -232,9 +239,8 @@ fn AjoTab() -> impl IntoView {
         let Ok(count) = members.get().parse::<u32>() else { return };
 
         leptos::task::spawn_local(async move {
-            let token = get_token().unwrap_or_default();
-            let _ = HttpRequest::post(&format!("{API_BASE}/ajo"))
-                .header("Authorization", &format!("Bearer {token}"))
+            
+            let _ = api_post(&format!("{API_BASE}/ajo"))
                 .header("Content-Type", "application/json")
                 .body(serde_json::json!({
                     "name": name,
@@ -312,9 +318,8 @@ fn BillsTab() -> impl IntoView {
 
     let fetch_bills = move || {
         leptos::task::spawn_local(async move {
-            let token = get_token().unwrap_or_default();
-            if let Ok(r) = HttpRequest::get(&format!("{API_BASE}/bills"))
-                .header("Authorization", &format!("Bearer {token}"))
+            
+            if let Ok(r) = api_get(&format!("{API_BASE}/bills"))
                 .send().await
             {
                 let data: Vec<serde_json::Value> = r.json().await.unwrap_or_default();
@@ -336,9 +341,8 @@ fn BillsTab() -> impl IntoView {
             .collect();
 
         leptos::task::spawn_local(async move {
-            let token = get_token().unwrap_or_default();
-            let _ = HttpRequest::post(&format!("{API_BASE}/bills"))
-                .header("Authorization", &format!("Bearer {token}"))
+            
+            let _ = api_post(&format!("{API_BASE}/bills"))
                 .header("Content-Type", "application/json")
                 .body(serde_json::json!({
                     "title": title,
@@ -413,9 +417,8 @@ fn HistoryTab() -> impl IntoView {
     let (loading, set_loading) = signal(true);
 
     leptos::task::spawn_local(async move {
-        let token = get_token().unwrap_or_default();
-        if let Ok(r) = HttpRequest::get(&format!("{API_BASE}/wallet/transactions"))
-            .header("Authorization", &format!("Bearer {token}"))
+        
+        if let Ok(r) = api_get(&format!("{API_BASE}/wallet/transactions"))
             .send().await
         {
             let data: Vec<serde_json::Value> = r.json().await.unwrap_or_default();

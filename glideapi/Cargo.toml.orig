@@ -1,0 +1,36 @@
+[package]
+name = "glideapi"
+version = "0.1.1"
+edition = "2021"
+description = "Ergonomic Rust web framework — FastAPI-style DX, Actix-level performance"
+license = "MIT"
+repository = "https://github.com/your-username/ferox"
+homepage = "https://github.com/your-username/ferox"
+documentation = "https://docs.rs/ferox"
+readme = "README.md"
+keywords = ["web", "framework", "http", "api", "async"]
+categories = ["web-programming::http-server", "asynchronous"]
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+async-trait = "0.1"
+bytes = "1"
+linkme = "0.3"
+uuid = { version = "1", features = ["v4"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-util = { version = "0.7" }
+ferox_macros = { version = "0.1.0" }
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+
+[[example]]
+name = "hello"
+path = "examples/hello.rs"
