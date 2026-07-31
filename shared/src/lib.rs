@@ -164,7 +164,7 @@ pub struct BillParticipant {
 pub struct RegisterRequest {
     pub name:  String,
     pub phone: String,
-    pub email: Option<String>,
+    pub email: String, // required — needed for notifications and Paystack
     pub pin:   String,
 }
 

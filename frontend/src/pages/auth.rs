@@ -10,6 +10,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
     let (is_register, set_register) = signal(false);
     let (name, set_name)            = signal(String::new());
     let (phone, set_phone)          = signal(String::new());
+    let (email, set_email)          = signal(String::new());
     let (pin, set_pin)              = signal(String::new());
     let (error, set_error)          = signal(Option::<String>::None);
     let (loading, set_loading)      = signal(false);
@@ -20,6 +21,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
         let phone    = phone.get();
         let pin      = pin.get();
         let name     = name.get();
+        let email    = email.get();
         let is_reg   = is_register.get();
         let on_login = on_login_clone.clone();
 
@@ -39,7 +41,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
             };
 
             let body = if is_reg {
-                json!({ "name": name, "phone": phone, "pin": pin })
+                json!({ "name": name, "phone": phone, "email": email, "pin": pin })
             } else {
                 json!({ "phone": phone, "pin": pin })
             };
@@ -112,6 +114,9 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
                     <div class="space-y-3">
                         {move || is_register.get().then(|| view! {
                             <Input placeholder="Full name" value=name.get() on_input=move |v| set_name.set(v) />
+                        })}
+                        {move || is_register.get().then(|| view! {
+                            <Input placeholder="Email address" value=email.get() on_input=move |v| set_email.set(v) />
                         })}
                         <Input placeholder="Phone (e.g. 08012345678)" value=phone.get() on_input=move |v| set_phone.set(v) />
                         <Input placeholder="4–6 digit PIN" value=pin.get() input_type="password" on_input=move |v| set_pin.set(v) />

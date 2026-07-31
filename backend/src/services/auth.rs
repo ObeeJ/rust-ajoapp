@@ -139,6 +139,13 @@ fn validate_phone(phone: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn validate_email(email: &str) -> Result<(), ApiError> {
+    if email.trim().is_empty() || !email.contains('@') || email.len() > 254 {
+        return Err(ApiError { error: "Valid email is required".into() });
+    }
+    Ok(())
+}
+
 fn validate_pin(pin: &str) -> Result<(), ApiError> {
     if pin.len() < 4 || pin.len() > 6 || !pin.chars().all(|c| c.is_ascii_digit()) {
         return Err(ApiError { error: "PIN must be 4–6 digits".into() });
@@ -165,9 +172,11 @@ pub struct AuthTokens {
 pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiError> {
     validate_name(&req.name)?;
     validate_phone(&req.phone)?;
+    validate_email(&req.email)?;
     validate_pin(&req.pin)?;
 
     let phone = req.phone.trim().to_string();
+    let email = req.email.trim().to_lowercase();
 
     let mut phones = store.phone_index.lock().unwrap();
     if phones.contains_key(&phone) {
@@ -181,7 +190,7 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
         id: user_id,
         name: req.name.trim().to_string(),
         phone: phone.clone(),
-        email: req.email.filter(|e| !e.is_empty()),
+        email: Some(email),
         role: UserRole::User,
         created_at: now,
     };

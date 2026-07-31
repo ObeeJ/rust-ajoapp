@@ -8,7 +8,8 @@ fn register_user(store: &Store, phone: &str, name: &str) -> uuid::Uuid {
     std::env::set_var("JWT_SECRET", "test-secret-that-is-long-enough-32b");
     let req = RegisterRequest {
         name: name.into(), phone: phone.into(),
-        email: None, pin: "1234".into(),
+        email: format!("{}@test.com", phone),
+        pin: "1234".into(),
     };
     auth::register(store, req).unwrap().user.id
 }
@@ -29,7 +30,8 @@ fn duplicate_phone_rejected() {
     let store = test_store();
     register_user(&store, "08022222222", "Bob");
     let res = auth::register(&store, RegisterRequest {
-        name: "Bob2".into(), phone: "08022222222".into(), email: None, pin: "5678".into(),
+        name: "Bob2".into(), phone: "08022222222".into(),
+        email: "bob2@test.com".into(), pin: "5678".into(),
     });
     assert!(res.is_err());
     assert!(res.unwrap_err().error.contains("already registered"));
