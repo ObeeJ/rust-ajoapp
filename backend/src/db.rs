@@ -278,12 +278,12 @@ pub async fn persist_user(pool: &sqlx::PgPool, user: &shared::User, pin_hash: &s
     let role = match user.role { shared::UserRole::Admin => "admin", _ => "user" };
 
     sqlx::query(
-        "INSERT INTO users (id, name, phone, email, role, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        "INSERT INTO users (id, name, phone, email, role, email_verified, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (id) DO NOTHING"
     )
     .bind(user.id).bind(&user.name).bind(&user.phone)
-    .bind(&user.email).bind(role).bind(user.created_at)
+    .bind(&user.email).bind(role).bind(user.email_verified).bind(user.created_at)
     .execute(&mut *tx).await?;
 
     sqlx::query(
@@ -388,4 +388,14 @@ pub async fn persist_bill_payment(pool: &sqlx::PgPool, bill_id: uuid::Uuid, user
         .execute(&mut *tx).await?;
 
     tx.commit().await
+}
+
+// ── Direct email send (for OTP — not via outbox) ──────────────────────────────
+
+pub async fn send_otp_email(to: &str, otp: &str, name: &str) {
+    let subject = "Your Cowri verification code";
+    let body    = format!(
+        "Hi {name},\n\nYour Cowri email verification code is:\n\n  {otp}\n\nThis code expires in 15 minutes.\n\nIf you didn't create a Cowri account, ignore this email.\n\nCowri"
+    );
+    send_email(to, subject, &body).await;
 }

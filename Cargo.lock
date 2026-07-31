@@ -129,6 +129,7 @@ dependencies = [
  "hmac",
  "jsonwebtoken",
  "lettre",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",

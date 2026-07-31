@@ -5,12 +5,13 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ── Users ─────────────────────────────────────────────────────────────────────
 CREATE TABLE users (
-    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        TEXT        NOT NULL,
-    phone       TEXT        NOT NULL UNIQUE,
-    email       TEXT,
-    role        TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    name           TEXT        NOT NULL,
+    phone          TEXT        NOT NULL UNIQUE,
+    email          TEXT,
+    role           TEXT        NOT NULL DEFAULT 'user' CHECK (role IN ('user','admin')),
+    email_verified BOOLEAN     NOT NULL DEFAULT FALSE,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_users_phone ON users(phone);
 

@@ -3,8 +3,9 @@ use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation}
 use serde::{Deserialize, Serialize};
 use shared::*;
 use uuid::Uuid;
+use rand::Rng;
 
-use crate::store::Store;
+use crate::store::{Store, OtpEntry};
 
 const ACCESS_TOKEN_SECS: i64  = 60 * 15;       // 15 minutes
 const REFRESH_TOKEN_SECS: i64 = 60 * 60 * 24 * 7; // 7 days
@@ -167,6 +168,62 @@ pub struct AuthTokens {
     pub refresh_token: String,
     pub user:          User,
     pub wallet:        Wallet,
+    pub otp:           Option<String>, // only set on register, for email dispatch
+}
+
+/// Generate a 6-digit OTP, store it with 15-min expiry
+pub fn generate_otp(store: &Store, email: &str) -> String {
+    let code: String = rand::thread_rng()
+        .sample_iter(rand::distributions::Uniform::new(0, 10))
+        .take(6)
+        .map(|d| char::from_digit(d, 10).unwrap())
+        .collect();
+
+    store.email_otps.lock().unwrap().insert(email.to_string(), OtpEntry {
+        code:       code.clone(),
+        expires_at: Utc::now() + chrono::Duration::minutes(15),
+        attempts:   0,
+    });
+    code
+}
+
+/// Verify OTP — returns Ok(()) on success, Err on wrong/expired/too many attempts
+pub fn verify_otp(store: &Store, email: &str, code: &str) -> Result<(), ApiError> {
+    let mut otps = store.email_otps.lock().unwrap();
+    let entry = otps.get_mut(email)
+        .ok_or(ApiError { error: "No verification pending for this email".into() })?;
+
+    if entry.expires_at < Utc::now() {
+        otps.remove(email);
+        return Err(ApiError { error: "OTP expired. Request a new one.".into() });
+    }
+    if entry.attempts >= 5 {
+        return Err(ApiError { error: "Too many attempts. Request a new OTP.".into() });
+    }
+    if entry.code != code.trim() {
+        entry.attempts += 1;
+        return Err(ApiError { error: "Invalid OTP".into() });
+    }
+
+    otps.remove(email);
+
+    // Mark user as verified
+    let mut users = store.users.lock().unwrap();
+    if let Some(u) = users.values_mut().find(|u| u.email.as_deref() == Some(email)) {
+        u.email_verified = true;
+    }
+
+    Ok(())
+}
+
+pub fn resend_otp(store: &Store, email: &str) -> Result<String, ApiError> {
+    // Only resend if user exists and is unverified
+    let exists = store.users.lock().unwrap()
+        .values().any(|u| u.email.as_deref() == Some(email));
+    if !exists {
+        return Err(ApiError { error: "Email not found".into() });
+    }
+    Ok(generate_otp(store, email))
 }
 
 pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiError> {
@@ -192,6 +249,7 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
         phone: phone.clone(),
         email: Some(email),
         role: UserRole::User,
+        email_verified: false,
         created_at: now,
     };
 
@@ -214,10 +272,13 @@ pub fn register(store: &Store, req: RegisterRequest) -> Result<AuthTokens, ApiEr
     store.pins.lock().unwrap().insert(user_id, hashed);
     store.wallets.lock().unwrap().insert(user_id, wallet.clone());
 
+    // Generate and store OTP — caller must send it via email
+    let otp = generate_otp(store, user.email.as_deref().unwrap_or(""));
+
     let access_token  = make_access_token(user_id, "user")?;
     let refresh_token = make_refresh_token(store, user_id);
 
-    Ok(AuthTokens { access_token, refresh_token, user, wallet })
+    Ok(AuthTokens { access_token, refresh_token, user, wallet, otp: Some(otp) })
 }
 
 pub fn login(store: &Store, req: LoginRequest) -> Result<AuthTokens, ApiError> {
@@ -250,8 +311,14 @@ pub fn login(store: &Store, req: LoginRequest) -> Result<AuthTokens, ApiError> {
         .ok_or(ApiError { error: "Wallet not found".into() })?;
 
     let role          = match user.role { UserRole::Admin => "admin", _ => "user" };
+
+    // Block login until email is verified
+    if !user.email_verified {
+        return Err(ApiError { error: "Email not verified. Check your inbox for the OTP.".into() });
+    }
+
     let access_token  = make_access_token(user_id, role)?;
     let refresh_token = make_refresh_token(store, user_id);
 
-    Ok(AuthTokens { access_token, refresh_token, user, wallet })
+    Ok(AuthTokens { access_token, refresh_token, user, wallet, otp: None })
 }

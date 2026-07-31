@@ -11,7 +11,11 @@ fn register_user(store: &Store, phone: &str, name: &str) -> uuid::Uuid {
         email: format!("{}@test.com", phone),
         pin: "1234".into(),
     };
-    auth::register(store, req).unwrap().user.id
+    let tokens = auth::register(store, req).unwrap();
+    // Auto-verify in tests — no email server needed
+    let uid = tokens.user.id;
+    store.users.lock().unwrap().get_mut(&uid).unwrap().email_verified = true;
+    uid
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -300,4 +304,59 @@ fn concurrent_debits_never_overdraft() {
     // Ledger invariant must still hold
     let wallet_id = store.wallets.lock().unwrap().get(&uid).unwrap().id;
     wallet::assert_ledger_invariant(&store, wallet_id).expect("ledger invariant violated after concurrency");
+}
+
+// ── Email verification ────────────────────────────────────────────────────────
+
+#[test]
+fn unverified_user_cannot_login() {
+    let store = test_store();
+    let req = RegisterRequest {
+        name: "Unverified".into(), phone: "08099100001".into(),
+        email: "unverified@test.com".into(), pin: "1234".into(),
+    };
+    auth::register(&store, req).unwrap();
+    // Do NOT verify — login should fail
+    let res = auth::login(&store, LoginRequest { phone: "08099100001".into(), pin: "1234".into() });
+    assert!(res.is_err());
+    assert!(res.unwrap_err().error.contains("not verified"));
+}
+
+#[test]
+fn otp_verify_flow() {
+    let store = test_store();
+    let req = RegisterRequest {
+        name: "Verified".into(), phone: "08099100002".into(),
+        email: "verified@test.com".into(), pin: "1234".into(),
+    };
+    let tokens = auth::register(&store, req).unwrap();
+    let otp = tokens.otp.unwrap();
+
+    // Wrong OTP rejected
+    let bad = auth::verify_otp(&store, "verified@test.com", "000000");
+    assert!(bad.is_err());
+
+    // Correct OTP accepted
+    auth::verify_otp(&store, "verified@test.com", &otp).unwrap();
+
+    // Login now works
+    let login = auth::login(&store, LoginRequest { phone: "08099100002".into(), pin: "1234".into() });
+    assert!(login.is_ok());
+}
+
+#[test]
+fn otp_expires_after_max_attempts() {
+    let store = test_store();
+    let req = RegisterRequest {
+        name: "Lockout".into(), phone: "08099100003".into(),
+        email: "lockout@test.com".into(), pin: "1234".into(),
+    };
+    auth::register(&store, req).unwrap();
+
+    for _ in 0..5 {
+        let _ = auth::verify_otp(&store, "lockout@test.com", "000000");
+    }
+    let res = auth::verify_otp(&store, "lockout@test.com", "000000");
+    assert!(res.is_err());
+    assert!(res.unwrap_err().error.contains("Too many"));
 }

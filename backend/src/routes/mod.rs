@@ -103,16 +103,57 @@ pub async fn register(req: Request) -> Response {
     };
     match auth_svc::register(&state.store, body) {
         Ok(t) => {
-            // Persist to Postgres (fire-and-forget — store is already updated)
             let pin_hash = state.store.pins.lock().unwrap()
                 .get(&t.user.id).cloned().unwrap_or_default();
             let _ = db::persist_user(&state.db, &t.user, &pin_hash, &t.wallet).await;
-            set_auth_cookies(
-                ok(201, serde_json::json!({ "user": t.user, "wallet": t.wallet })),
-                &t.access_token, &t.refresh_token,
-            )
+
+            // Send OTP email immediately (not via outbox — user is waiting)
+            if let (Some(email), Some(otp)) = (t.user.email.as_deref(), t.otp.as_deref()) {
+                db::send_otp_email(email, otp, &t.user.name).await;
+            }
+
+            ok(201, serde_json::json!({
+                "message": "Account created. Check your email for a 6-digit verification code.",
+                "user_id": t.user.id,
+            }))
         }
         Err(e) if e.error.contains("already registered") => ok(409, e),
+        Err(e) => ok(400, e),
+    }
+}
+
+pub async fn verify_email(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let Json(body) = match Json::<VerifyEmailRequest>::from_request(&req) {
+        Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
+    };
+    match auth_svc::verify_otp(&state.store, &body.email, &body.otp) {
+        Ok(_) => {
+            // Persist verified status to DB
+            let _ = sqlx::query(
+                "UPDATE users SET email_verified = true WHERE email = $1"
+            )
+            .bind(&body.email)
+            .execute(&state.db).await;
+            ok(200, serde_json::json!({ "message": "Email verified. You can now sign in." }))
+        }
+        Err(e) => ok(400, e),
+    }
+}
+
+pub async fn resend_otp(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let Json(body) = match Json::<ResendOtpRequest>::from_request(&req) {
+        Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
+    };
+    match auth_svc::resend_otp(&state.store, &body.email) {
+        Ok(otp) => {
+            let name = state.store.users.lock().unwrap()
+                .values().find(|u| u.email.as_deref() == Some(&body.email))
+                .map(|u| u.name.clone()).unwrap_or_else(|| "there".into());
+            db::send_otp_email(&body.email, &otp, &name).await;
+            ok(200, serde_json::json!({ "message": "Verification code sent." }))
+        }
         Err(e) => ok(400, e),
     }
 }
@@ -128,6 +169,7 @@ pub async fn login(req: Request) -> Response {
             &t.access_token,
             &t.refresh_token,
         ),
+        Err(e) if e.error.contains("not verified") => ok(403, e),
         Err(e) => ok(401, e),
     }
 }

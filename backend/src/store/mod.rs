@@ -25,6 +25,8 @@ pub struct Store {
     pub login_attempts:     Arc<Mutex<HashMap<String, LoginAttempts>>>,
     pub denied_jtis:        Arc<Mutex<HashSet<String>>>,
     pub idempotency_cache:  Arc<Mutex<HashMap<String, IdempotencyEntry>>>,
+    /// email → OtpEntry
+    pub email_otps:         Arc<Mutex<HashMap<String, OtpEntry>>>,
 }
 
 pub struct RefreshEntry {
@@ -44,6 +46,12 @@ pub struct IdempotencyEntry {
     pub created_at: DateTime<Utc>,
 }
 
+pub struct OtpEntry {
+    pub code:       String,
+    pub expires_at: DateTime<Utc>,
+    pub attempts:   u32,
+}
+
 impl Store {
     pub fn new() -> Self { Self::default() }
 
@@ -60,9 +68,9 @@ impl Store {
         let store = Self::new();
 
         // ── Users + pins ──────────────────────────────────────────────────────
-        let rows: Vec<(Uuid, String, String, Option<String>, String, DateTime<Utc>)> =
+        let rows: Vec<(Uuid, String, String, Option<String>, String, bool, DateTime<Utc>)> =
             sqlx::query_as(
-                "SELECT u.id, u.name, u.phone, u.email, u.role, u.created_at
+                "SELECT u.id, u.name, u.phone, u.email, u.role, u.email_verified, u.created_at
                  FROM users u ORDER BY u.created_at"
             )
             .fetch_all(pool).await?;
@@ -76,10 +84,11 @@ impl Store {
             let mut phones  = store.phone_index.lock().unwrap();
             let mut pins    = store.pins.lock().unwrap();
 
-            for (id, name, phone, email, role, created_at) in rows {
+            for (id, name, phone, email, role, email_verified, created_at) in rows {
                 let user = User {
                     id, name, phone: phone.clone(), email,
                     role: if role == "admin" { UserRole::Admin } else { UserRole::User },
+                    email_verified,
                     created_at,
                 };
                 phones.insert(phone, id);

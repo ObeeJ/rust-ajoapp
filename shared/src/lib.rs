@@ -10,12 +10,13 @@ pub enum UserRole { User, Admin }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
-    pub id:         Uuid,
-    pub name:       String,
-    pub phone:      String,
-    pub email:      Option<String>,
-    pub role:       UserRole,
-    pub created_at: DateTime<Utc>,
+    pub id:             Uuid,
+    pub name:           String,
+    pub phone:          String,
+    pub email:          Option<String>,
+    pub role:           UserRole,
+    pub email_verified: bool,
+    pub created_at:     DateTime<Utc>,
 }
 
 // ── Wallet ────────────────────────────────────────────────────────────────────
@@ -164,8 +165,19 @@ pub struct BillParticipant {
 pub struct RegisterRequest {
     pub name:  String,
     pub phone: String,
-    pub email: String, // required — needed for notifications and Paystack
+    pub email: String,
     pub pin:   String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VerifyEmailRequest {
+    pub email: String,
+    pub otp:   String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResendOtpRequest {
+    pub email: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
