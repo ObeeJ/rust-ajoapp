@@ -187,29 +187,23 @@ async fn deliver_event(event_type: &str, payload: &serde_json::Value) -> bool {
     match event_type {
         "wallet.credited" => {
             let email   = payload["email"].as_str().unwrap_or("");
+            let name    = payload["name"].as_str().unwrap_or("there");
             let amount  = payload["amount_kobo"].as_i64().unwrap_or(0);
             let balance = payload["running_balance_kobo"].as_i64().unwrap_or(0);
             if !email.is_empty() {
-                let subject = "Your Cowri wallet has been credited";
-                let body    = format!(
-                    "Your wallet was credited ₦{:.2}.\nNew balance: ₦{:.2}.\n\nCowri",
-                    amount as f64 / 100.0, balance as f64 / 100.0
-                );
-                send_email(email, subject, &body).await;
+                let (subject, html, plain) = crate::email::wallet_credited_email(name, amount, balance);
+                send_email(email, subject, &html, &plain).await;
             }
             true
         }
         "ajo.payout" => {
             let email  = payload["email"].as_str().unwrap_or("");
+            let name   = payload["name"].as_str().unwrap_or("there");
             let amount = payload["amount_kobo"].as_i64().unwrap_or(0);
             let group  = payload["group_name"].as_str().unwrap_or("your Ajo group");
             if !email.is_empty() {
-                let subject = format!("You received your Ajo payout from {group}");
-                let body    = format!(
-                    "₦{:.2} has been paid into your Cowri wallet from {}.\n\nCowri",
-                    amount as f64 / 100.0, group
-                );
-                send_email(email, &subject, &body).await;
+                let (subject, html, plain) = crate::email::ajo_payout_email(name, amount, group);
+                send_email(email, subject, &html, &plain).await;
             }
             true
         }
@@ -220,14 +214,14 @@ async fn deliver_event(event_type: &str, payload: &serde_json::Value) -> bool {
     }
 }
 
-async fn send_email(to: &str, subject: &str, body: &str) {
+async fn send_email(to: &str, subject: &str, html: &str, plain: &str) {
     use lettre::{
         AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
-        message::header::ContentType,
+        message::{MultiPart, SinglePart, header::ContentType},
         transport::smtp::authentication::Credentials,
     };
 
-    let smtp_host     = std::env::var("SMTP_HOST").unwrap_or_else(|_| "smtp.gmail.com".into());
+    let smtp_host      = std::env::var("SMTP_HOST").unwrap_or_else(|_| "smtp.gmail.com".into());
     let smtp_port: u16 = std::env::var("SMTP_PORT").ok()
         .and_then(|p| p.parse().ok()).unwrap_or(465);
     let username = match std::env::var("SMTP_USERNAME") {
@@ -245,8 +239,11 @@ async fn send_email(to: &str, subject: &str, body: &str) {
         .from(from.parse().unwrap())
         .to(to.parse().unwrap())
         .subject(subject)
-        .header(ContentType::TEXT_PLAIN)
-        .body(body.to_string())
+        .multipart(
+            MultiPart::alternative()
+                .singlepart(SinglePart::builder().header(ContentType::TEXT_PLAIN).body(plain.to_string()))
+                .singlepart(SinglePart::builder().header(ContentType::TEXT_HTML).body(html.to_string()))
+        )
     {
         Ok(m) => m,
         Err(e) => { tracing::warn!(error = %e, "Failed to build email"); return; }
@@ -393,9 +390,6 @@ pub async fn persist_bill_payment(pool: &sqlx::PgPool, bill_id: uuid::Uuid, user
 // ── Direct email send (for OTP — not via outbox) ──────────────────────────────
 
 pub async fn send_otp_email(to: &str, otp: &str, name: &str) {
-    let subject = "Your Cowri verification code";
-    let body    = format!(
-        "Hi {name},\n\nYour Cowri email verification code is:\n\n  {otp}\n\nThis code expires in 15 minutes.\n\nIf you didn't create a Cowri account, ignore this email.\n\nCowri"
-    );
-    send_email(to, subject, &body).await;
+    let (subject, html, plain) = crate::email::otp_email(name, otp);
+    send_email(to, subject, &html, &plain).await;
 }

@@ -3,6 +3,7 @@ mod services;
 mod routes;
 mod middleware;
 mod db;
+mod email;
 #[cfg(test)]
 mod tests;
 
