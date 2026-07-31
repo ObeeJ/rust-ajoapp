@@ -316,7 +316,7 @@ fn AjoTab() -> impl IntoView {
             } else if groups.get().is_empty() {
                 view! {
                     <div class="text-center py-10 text-gray-400">
-                        <p class="text-3xl mb-2">"🤝"</p>
+                        <p class="text-3xl mb-2">""</p>
                         <p class="text-sm">"No ajo groups yet. Start one above!"</p>
                     </div>
                 }.into_any()
@@ -415,7 +415,7 @@ fn BillsTab() -> impl IntoView {
             } else if bills.get().is_empty() {
                 view! {
                     <div class="text-center py-10 text-gray-400">
-                        <p class="text-3xl mb-2">"🧾"</p>
+                        <p class="text-3xl mb-2">""</p>
                         <p class="text-sm">"No bills yet. Split one above!"</p>
                     </div>
                 }.into_any()
@@ -476,7 +476,7 @@ fn HistoryTab() -> impl IntoView {
             } else if txns.get().is_empty() {
                 view! {
                     <div class="text-center py-10 text-gray-400">
-                        <p class="text-3xl mb-2">"📋"</p>
+                        <p class="text-3xl mb-2">""</p>
                         <p class="text-sm">"No transactions yet."</p>
                     </div>
                 }.into_any()

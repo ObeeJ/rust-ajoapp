@@ -59,7 +59,7 @@ async fn main() {
 
     let state = AppState { store, db: pool };
 
-    tracing::info!("🚀 Cowri API on http://0.0.0.0:3000");
+    tracing::info!(" Cowri API on http://0.0.0.0:3000");
 
     App::new()
         .config(Config { cors_origin, ..Config::default() })

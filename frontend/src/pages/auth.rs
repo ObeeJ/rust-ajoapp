@@ -135,7 +135,7 @@ pub fn AuthPage(on_login: impl Fn(String, String, i64) + 'static + Clone) -> imp
                     </div>
 
                     <p class="mt-4 text-center text-xs text-gray-400">
-                        "No hidden charges. No bank wahala. 🇳🇬"
+                        "No hidden charges. No bank wahala. "
                     </p>
                 </div>
             </div>
