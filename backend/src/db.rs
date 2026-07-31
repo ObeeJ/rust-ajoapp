@@ -2,7 +2,6 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 use shared::*;
-use reqwest;
 
 pub async fn run_migrations(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     sqlx::migrate!("./migrations").run(pool).await?;
@@ -187,73 +186,87 @@ pub async fn outbox_worker(pool: PgPool) {
 async fn deliver_event(event_type: &str, payload: &serde_json::Value) -> bool {
     match event_type {
         "wallet.credited" => {
-            let phone   = payload["phone"].as_str().unwrap_or("");
+            let email   = payload["email"].as_str().unwrap_or("");
             let amount  = payload["amount_kobo"].as_i64().unwrap_or(0);
             let balance = payload["running_balance_kobo"].as_i64().unwrap_or(0);
-            if !phone.is_empty() {
-                let msg = format!(
-                    "Cowri: Your wallet has been credited ₦{:.2}. Balance: ₦{:.2}",
+            if !email.is_empty() {
+                let subject = "Your Cowri wallet has been credited";
+                let body    = format!(
+                    "Your wallet was credited ₦{:.2}.\nNew balance: ₦{:.2}.\n\nCowri",
                     amount as f64 / 100.0, balance as f64 / 100.0
                 );
-                send_sms(phone, &msg).await;
+                send_email(email, subject, &body).await;
             }
             true
         }
         "ajo.payout" => {
-            let phone  = payload["phone"].as_str().unwrap_or("");
+            let email  = payload["email"].as_str().unwrap_or("");
             let amount = payload["amount_kobo"].as_i64().unwrap_or(0);
             let group  = payload["group_name"].as_str().unwrap_or("your Ajo group");
-            if !phone.is_empty() {
-                let msg = format!(
-                    "Cowri: You received ₦{:.2} payout from {}. Check your wallet.",
+            if !email.is_empty() {
+                let subject = format!("You received your Ajo payout from {group}");
+                let body    = format!(
+                    "₦{:.2} has been paid into your Cowri wallet from {}.\n\nCowri",
                     amount as f64 / 100.0, group
                 );
-                send_sms(phone, &msg).await;
+                send_email(email, &subject, &body).await;
             }
             true
         }
         _ => {
-            tracing::info!(event_type, ?payload, "outbox event delivered");
+            tracing::info!(event_type, "outbox event processed");
             true
         }
     }
 }
 
-/// Send SMS via Termii (Nigerian SMS gateway).
-/// Falls back silently if TERMII_API_KEY is not set — no crash.
-async fn send_sms(phone: &str, message: &str) {
-    let api_key = match std::env::var("TERMII_API_KEY") {
-        Ok(k) => k,
-        Err(_) => {
-            tracing::debug!(phone, "TERMII_API_KEY not set — SMS skipped");
-            return;
-        }
+async fn send_email(to: &str, subject: &str, body: &str) {
+    use lettre::{
+        AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
+        message::header::ContentType,
+        transport::smtp::authentication::Credentials,
     };
 
-    let sender_id = std::env::var("TERMII_SENDER_ID")
-        .unwrap_or_else(|_| "Cowri".into());
+    let smtp_host     = std::env::var("SMTP_HOST").unwrap_or_else(|_| "smtp.gmail.com".into());
+    let smtp_port: u16 = std::env::var("SMTP_PORT").ok()
+        .and_then(|p| p.parse().ok()).unwrap_or(465);
+    let username = match std::env::var("SMTP_USERNAME") {
+        Ok(u) => u,
+        Err(_) => { tracing::debug!("SMTP_USERNAME not set — email skipped"); return; }
+    };
+    let password = match std::env::var("SMTP_PASSWORD") {
+        Ok(p) => p,
+        Err(_) => { tracing::debug!("SMTP_PASSWORD not set — email skipped"); return; }
+    };
+    let from = std::env::var("EMAIL_FROM")
+        .unwrap_or_else(|_| format!("Cowri <{username}>"));
 
-    let client = reqwest::Client::new();
-    let res = client
-        .post("https://api.ng.termii.com/api/sms/send")
-        .json(&serde_json::json!({
-            "to":       phone,
-            "from":     sender_id,
-            "sms":      message,
-            "type":     "plain",
-            "channel":  "generic",
-            "api_key":  api_key,
-        }))
-        .send()
-        .await;
+    let msg = match Message::builder()
+        .from(from.parse().unwrap())
+        .to(to.parse().unwrap())
+        .subject(subject)
+        .header(ContentType::TEXT_PLAIN)
+        .body(body.to_string())
+    {
+        Ok(m) => m,
+        Err(e) => { tracing::warn!(error = %e, "Failed to build email"); return; }
+    };
 
-    match res {
-        Ok(r) if r.status().is_success() =>
-            tracing::info!(phone, "SMS delivered"),
-        Ok(r) =>
-            tracing::warn!(phone, status = %r.status(), "SMS delivery failed"),
-        Err(e) =>
-            tracing::warn!(phone, error = %e, "SMS request error"),
+    let creds = Credentials::new(username, password);
+    let transport = if smtp_port == 465 {
+        AsyncSmtpTransport::<Tokio1Executor>::relay(&smtp_host)
+    } else {
+        AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(&smtp_host)
+    };
+
+    let transport = match transport {
+        Ok(t) => t.credentials(creds).build(),
+        Err(e) => { tracing::warn!(error = %e, "SMTP transport error"); return; }
+    };
+
+    match transport.send(msg).await {
+        Ok(_)  => tracing::info!(to, subject, "Email sent"),
+        Err(e) => tracing::warn!(to, error = %e, "Email failed"),
     }
 }
 

@@ -26,3 +26,4 @@ dashmap = "6"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-native-tls", "uuid", "chrono", "macros"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+lettre = { version = "0.11", features = ["tokio1-native-tls", "smtp-transport", "builder"], default-features = false }
