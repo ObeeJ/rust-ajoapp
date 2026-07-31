@@ -114,6 +114,23 @@ pub fn contribute(store: &Store, group_id: Uuid, contributor_id: Uuid) -> Result
     store.ajo_contributions.lock().unwrap()
         .insert((group_id, contributor_id, group.current_cycle));
 
+    // Notify receiver that a contribution arrived
+    let receiver_email = store.users.lock().unwrap()
+        .get(&receiver_id).and_then(|u| u.email.clone()).unwrap_or_default();
+    let receiver_name = store.users.lock().unwrap()
+        .get(&receiver_id).map(|u| u.name.clone()).unwrap_or_default();
+    let contributor_name = store.users.lock().unwrap()
+        .get(&contributor_id).map(|u| u.name.clone()).unwrap_or_else(|| "A member".into());
+
+    crate::services::wallet::stage_outbox_event(store, "ajo.contribution", serde_json::json!({
+        "receiver_email":    receiver_email,
+        "receiver_name":     receiver_name,
+        "contributor_name":  contributor_name,
+        "amount_kobo":       payout_kobo,
+        "group_name":        group.name,
+        "cycle":             group.current_cycle,
+    }));
+
     // Count contributions this cycle — advance if all members contributed
     let member_count = store.ajo_members.lock().unwrap()
         .keys().filter(|(g, _)| *g == group_id).count() as u32;

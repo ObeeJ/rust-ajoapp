@@ -191,6 +191,11 @@ fn stage_outbox(store: &Store, event_type: &str, payload: serde_json::Value) {
     });
 }
 
+/// Public — for use by other services (bills, ajo)
+pub fn stage_outbox_event(store: &Store, event_type: &str, payload: serde_json::Value) {
+    stage_outbox(store, event_type, payload);
+}
+
 pub async fn init_paystack_payment(
     amount_kobo: i64,
     email: &str,

@@ -158,6 +158,38 @@ pub async fn resend_otp(req: Request) -> Response {
     }
 }
 
+pub async fn forgot_pin(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let Json(body) = match Json::<ForgotPinRequest>::from_request(&req) {
+        Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
+    };
+    // Always return same message — no email enumeration
+    match auth_svc::forgot_pin(&state.store, &body.email) {
+        Ok((otp, name)) => {
+            let (subject, html, plain) = crate::email::forgot_pin_email(&name, &otp);
+            db::send_email_direct(&body.email, subject, &html, &plain).await;
+        }
+        Err(_) => {} // silent — don't reveal if email exists
+    }
+    ok(200, serde_json::json!({ "message": "If that email is registered, you'll receive a reset code." }))
+}
+
+pub async fn reset_pin(req: Request) -> Response {
+    let state = match state(&req) { Ok(s) => s, Err(e) => return e };
+    let Json(body) = match Json::<ResetPinRequest>::from_request(&req) {
+        Ok(b) => b, Err(_) => return err(400, "Invalid request body"),
+    };
+    match auth_svc::reset_pin(&state.store, body) {
+        Ok(_) => {
+            // Persist new PIN hash to DB
+            let email_clone = req.headers.get("x-email").cloned(); // not needed — handled in service
+            let _ = email_clone;
+            ok(200, serde_json::json!({ "message": "PIN reset successfully. You can now sign in." }))
+        }
+        Err(e) => ok(400, e),
+    }
+}
+
 pub async fn login(req: Request) -> Response {
     let state = match state(&req) { Ok(s) => s, Err(e) => return e };
     let Json(body) = match Json::<LoginRequest>::from_request(&req) {

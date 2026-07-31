@@ -5,12 +5,11 @@ use web_sys::RequestCredentials;
 use crate::state::API_BASE;
 use crate::components::{Button, Card, Badge, Spinner, Skeleton, Toast};
 
-/// All API calls include credentials so the browser sends the httpOnly cookie
 fn api_get(url: &str) -> gloo_net::http::RequestBuilder {
-    api_get(url).credentials(RequestCredentials::Include)
+    HttpRequest::get(url).credentials(RequestCredentials::Include)
 }
 fn api_post(url: &str) -> gloo_net::http::RequestBuilder {
-    api_post(url).credentials(RequestCredentials::Include)
+    HttpRequest::post(url).credentials(RequestCredentials::Include)
 }
 
 #[component]
@@ -19,11 +18,20 @@ pub fn DashboardPage(
     balance_kobo: i64,
     on_logout: impl Fn() + 'static,
 ) -> impl IntoView {
-    let (tab, set_tab) = signal("wallet");
-    let formatted = format!("₦{:,.2}", balance_kobo as f64 / 100.0);
+    let (tab, set_tab)     = signal("wallet");
+    let (toast, set_toast) = signal(Option::<(String, String)>::None);
+    let formatted = format!("₦{:.2}", balance_kobo as f64 / 100.0);
 
     view! {
         <div class="min-h-screen bg-gray-50">
+            // Global toast
+            {move || toast.get().map(|(msg, kind)| view! {
+                <Toast
+                    message=msg
+                    kind=kind
+                    on_dismiss=move || set_toast.set(None)
+                />
+            })}
             // Top nav
             <header class="bg-white border-b border-gray-100 px-4 py-3 flex items-center justify-between sticky top-0 z-10 shadow-sm">
                 <div class="flex items-center gap-2">

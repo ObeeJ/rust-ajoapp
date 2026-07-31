@@ -94,6 +94,26 @@ pub fn pay_bill_share(store: &Store, bill_id: Uuid, user_id: Uuid) -> Result<(),
         bill.status = if all_paid { BillStatus::Settled } else { BillStatus::PartiallyPaid };
     }
 
+    // Notify bill creator that someone paid (skip if payer IS creator)
+    if user_id != creator_id {
+        let creator_email = store.users.lock().unwrap()
+            .get(&creator_id).and_then(|u| u.email.clone()).unwrap_or_default();
+        let creator_name = store.users.lock().unwrap()
+            .get(&creator_id).map(|u| u.name.clone()).unwrap_or_default();
+        let payer_name = store.users.lock().unwrap()
+            .get(&user_id).map(|u| u.name.clone()).unwrap_or_else(|| "Someone".into());
+        let bill_title = store.bills.lock().unwrap()
+            .get(&bill_id).map(|b| b.title.clone()).unwrap_or_default();
+
+        crate::services::wallet::stage_outbox_event(store, "bill.paid", serde_json::json!({
+            "creator_email": creator_email,
+            "creator_name":  creator_name,
+            "payer_name":    payer_name,
+            "amount_kobo":   share_kobo,
+            "bill_title":    bill_title,
+        }));
+    }
+
     Ok(())
 }
 

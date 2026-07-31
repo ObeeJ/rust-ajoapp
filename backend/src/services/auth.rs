@@ -322,3 +322,39 @@ pub fn login(store: &Store, req: LoginRequest) -> Result<AuthTokens, ApiError> {
 
     Ok(AuthTokens { access_token, refresh_token, user, wallet, otp: None })
 }
+
+/// Initiate PIN reset — generates OTP keyed on email, returns OTP for email dispatch
+pub fn forgot_pin(store: &Store, email: &str) -> Result<(String, String), ApiError> {
+    // Find user by email
+    let (user_id, name) = {
+        let users = store.users.lock().unwrap();
+        users.values()
+            .find(|u| u.email.as_deref() == Some(email))
+            .map(|u| (u.id, u.name.clone()))
+            .ok_or(ApiError { error: "If that email is registered, you'll receive a reset code.".into() })?
+    };
+    let _ = user_id; // suppress unused warning — we just need to confirm user exists
+    let otp = generate_otp(store, &format!("reset:{email}"));
+    Ok((otp, name))
+}
+
+/// Complete PIN reset — verify OTP then update hashed PIN
+pub fn reset_pin(store: &Store, req: ResetPinRequest) -> Result<(), ApiError> {
+    validate_pin(&req.new_pin)?;
+
+    // Verify OTP keyed on reset namespace
+    verify_otp(store, &format!("reset:{}", req.email), &req.otp)?;
+
+    // Find user
+    let user_id = store.users.lock().unwrap()
+        .values()
+        .find(|u| u.email.as_deref() == Some(&req.email))
+        .map(|u| u.id)
+        .ok_or(ApiError { error: "User not found".into() })?;
+
+    let hashed = bcrypt::hash(&req.new_pin, 12)
+        .map_err(|_| ApiError { error: "Reset failed".into() })?;
+
+    store.pins.lock().unwrap().insert(user_id, hashed);
+    Ok(())
+}

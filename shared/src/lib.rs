@@ -181,6 +181,18 @@ pub struct ResendOtpRequest {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct ForgotPinRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResetPinRequest {
+    pub email:   String,
+    pub otp:     String,
+    pub new_pin: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct LoginRequest {
     pub phone: String,
     pub pin:   String,

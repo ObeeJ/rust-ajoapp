@@ -207,6 +207,31 @@ async fn deliver_event(event_type: &str, payload: &serde_json::Value) -> bool {
             }
             true
         }
+        "bill.paid" => {
+            let email       = payload["creator_email"].as_str().unwrap_or("");
+            let name        = payload["creator_name"].as_str().unwrap_or("there");
+            let payer       = payload["payer_name"].as_str().unwrap_or("Someone");
+            let amount      = payload["amount_kobo"].as_i64().unwrap_or(0);
+            let bill_title  = payload["bill_title"].as_str().unwrap_or("bill");
+            if !email.is_empty() {
+                let (subject, html, plain) = crate::email::bill_paid_email(name, payer, amount, bill_title);
+                send_email(email, subject, &html, &plain).await;
+            }
+            true
+        }
+        "ajo.contribution" => {
+            let email       = payload["receiver_email"].as_str().unwrap_or("");
+            let name        = payload["receiver_name"].as_str().unwrap_or("there");
+            let contributor = payload["contributor_name"].as_str().unwrap_or("A member");
+            let amount      = payload["amount_kobo"].as_i64().unwrap_or(0);
+            let group       = payload["group_name"].as_str().unwrap_or("your group");
+            let cycle       = payload["cycle"].as_u64().unwrap_or(0) as u32;
+            if !email.is_empty() {
+                let (subject, html, plain) = crate::email::ajo_contribution_email(name, contributor, amount, group, cycle);
+                send_email(email, &subject, &html, &plain).await;
+            }
+            true
+        }
         _ => {
             tracing::info!(event_type, "outbox event processed");
             true
@@ -392,4 +417,8 @@ pub async fn persist_bill_payment(pool: &sqlx::PgPool, bill_id: uuid::Uuid, user
 pub async fn send_otp_email(to: &str, otp: &str, name: &str) {
     let (subject, html, plain) = crate::email::otp_email(name, otp);
     send_email(to, subject, &html, &plain).await;
+}
+
+pub async fn send_email_direct(to: &str, subject: &str, html: &str, plain: &str) {
+    send_email(to, subject, html, plain).await;
 }

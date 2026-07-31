@@ -67,6 +67,8 @@ async fn main() {
         .route("POST", "/v1/auth/register",       routes::register)
         .route("POST", "/v1/auth/verify-email",   routes::verify_email)
         .route("POST", "/v1/auth/resend-otp",     routes::resend_otp)
+        .route("POST", "/v1/auth/forgot-pin",     routes::forgot_pin)
+        .route("POST", "/v1/auth/reset-pin",      routes::reset_pin)
         .route("POST", "/v1/auth/login",           routes::login)
         .route("POST", "/v1/auth/refresh",         routes::refresh_token)
         .route("POST", "/v1/auth/logout",          routes::logout)
